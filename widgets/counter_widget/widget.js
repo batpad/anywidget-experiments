@@ -5,18 +5,18 @@
 window.__widgetRegistry = window.__widgetRegistry || new Map();
 window.__widgetEvents = window.__widgetEvents || new EventTarget();
 
-export function initialize({ model }) {
-    // Register this widget globally for inter-widget communication
+function render({ model, el }) {
+    // Register this widget's render model in the global registry
+    // (must happen in render, not initialize, because the render proxy is the live one)
     const widgetId = model.get('widget_id');
     window.__widgetRegistry.set(widgetId, model);
-    
-    // Clean up on destroy
     model.on('destroy', () => {
         window.__widgetRegistry.delete(widgetId);
     });
-}
+    window.__widgetEvents.dispatchEvent(new CustomEvent('widget-registered', {
+        detail: { widgetId }
+    }));
 
-export function render({ model, el }) {
     // Create widget container
     const container = document.createElement('div');
     container.className = 'counter-widget';
@@ -133,3 +133,5 @@ export function render({ model, el }) {
     // Append to element
     el.appendChild(container);
 }
+
+export default { render };
