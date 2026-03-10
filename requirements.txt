@@ -1,0 +1,32 @@
+# Core dependencies
+anywidget>=0.9.0
+jupyterlab>=4.0.0
+notebook>=7.0.0
+
+# Geospatial visualization
+lonboard>=0.9.0
+geopandas>=0.14.0
+shapely>=2.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0
+pyarrow>=14.0.0
+
+# MyST and JupyterBook
+# Note: mystmd must be installed via npm for latest version with anywidget support
+# npm install -g mystmd
+jupyter-book>=1.0.0
+myst-parser>=2.0.0
+myst-nb>=1.0.0
+
+# Development tools
+ipykernel>=6.0.0
+pytest>=7.0.0
+black>=23.0.0
+ruff>=0.1.0
+
+# Optional: for advanced examples
+matplotlib>=3.7.0
+seaborn>=0.12.0
+folium>=0.15.0

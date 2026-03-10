@@ -1,0 +1,58 @@
+# MyST configuration for anywidget experiments
+version: 1
+project:
+  title: Anywidget Composable Geospatial Widgets
+  description: Interactive geospatial widgets using anywidget for Jupyter and static HTML
+  authors:
+    - name: Anywidget Experiments Team
+  keywords:
+    - anywidget
+    - jupyter
+    - geospatial
+    - interactive
+    - widgets
+  github: https://github.com/yourusername/anywidget-experiments
+  
+site:
+  template: book-theme
+  title: Anywidget Experiments
+  logo: null
+  nav:
+    - title: Home
+      url: /
+    - title: Documentation
+      url: /CLAUDE
+    - title: GitHub
+      url: https://github.com/yourusername/anywidget-experiments
+  
+  actions:
+    - title: Download
+      url: https://github.com/yourusername/anywidget-experiments
+  
+  domains: []
+
+# Build settings
+build:
+  execute: true  # Execute notebooks during build
+  strict: false  # Don't fail on warnings initially
+
+# Table of contents
+toc:
+  - file: README
+  - file: CLAUDE
+  - title: Getting Started
+    children:
+      - file: notebooks/01_getting_started
+      - file: notebooks/02_basic_map_viz
+  - title: Widget Communication
+    children:
+      - file: notebooks/03_widget_communication
+      - file: notebooks/04_complex_interactions
+  - title: Static Export
+    children:
+      - file: notebooks/05_static_export_demo
+  - title: Advanced Examples
+    children:
+      - file: examples/temporal_analysis
+      - file: examples/spatial_filtering  
+      - file: examples/linked_views
