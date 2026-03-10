@@ -272,12 +272,118 @@ class WidgetRegistry {
 3. Performance optimization
 4. Upstream contributions to JupyterBook
 
+## Current Implementation State
+
+### Widgets Built
+- **CounterWidget** (`widgets/counter_widget/`) — Simple counter with +/-/Reset buttons. Registers in global registry, emits `counter-changed` CustomEvents.
+- **LinkedCounterWidget** (`widgets/linked_counter/`) — Counter that links to another widget via `link_to` trait. Supports mirror/sum/diff modes. Reads `linked_value` from upstream LinkedCounterWidgets, `value` from plain CounterWidgets.
+
+### Global Registry Architecture
+Both widget JS files initialize shared globals:
+```javascript
+window.__widgetRegistry = window.__widgetRegistry || new Map();  // widgetId → model proxy
+window.__widgetEvents = window.__widgetEvents || new EventTarget();  // for widget-registered events
+```
+
+Registration happens in `render()` (not `initialize()`), because the render proxy is the live one with working `get`/`set`/`on`/`off`/`save_changes`.
+
+### Anywidget Model Proxy (Important)
+The `model` passed to `render()` is **not a Backbone model**. It's a plain object proxy with:
+- `get(name)`, `set(name, value)` — native code, delegates to real Backbone model
+- `on(name, cb)` / `off(name, cb)` — delegates to `backboneModel.on(name, cb, context)`
+- `save_changes()` — syncs to Python
+- No `.trigger()` method
+
+Because `.on()` delegates to the shared Backbone model, listeners attached via ANY proxy for the same widget fire when state changes via ANY proxy. Proxy identity doesn't matter for event subscriptions.
+
+### Chain Propagation Logic
+For LinkedCounterWidget linking to another LinkedCounterWidget:
+1. `updateLinkedValue()` checks `linkedModel.get('linked_value') !== undefined` to detect LinkedCounterWidgets
+2. If target has `linked_value`, reads that (the "output"); otherwise reads `value`
+3. `setupLinkedListener()` subscribes to both `change:value` AND `change:linked_value` on the target
+
+### Known Bug: Stale Registry on Kernel Restart
+**Critical**: When the kernel restarts without a browser page reload, `window.__widgetRegistry` persists with stale model proxies from the old session. New widgets overwrite entries, but old listeners from the previous session linger. This causes unpredictable behavior — widgets may appear unlinked.
+
+**Workaround**: Refresh the browser page after kernel restart, or clear the registry on first new widget registration (not yet implemented).
+
+## Debugging Inter-Widget Communication
+
+### Using Chrome DevTools MCP
+
+#### Inspect Registry State
+```javascript
+// In evaluate_script:
+() => {
+  const r = window.__widgetRegistry;
+  const entries = [];
+  r.forEach((model, id) => {
+    entries.push({
+      id, value: model.get('value'),
+      linked_value: model.get('linked_value'),
+      link_to: model.get('link_to'),
+      link_mode: model.get('link_mode'),
+    });
+  });
+  return { size: r.size, entries };
+}
+```
+
+#### Test Event Propagation
+```javascript
+// Programmatically change a value and check downstream effects:
+() => {
+  const r = window.__widgetRegistry;
+  const source = r.get('chain_source');
+  const before = { /* snapshot all widgets */ };
+  source.set('value', source.get('value') + 1);
+  source.save_changes();
+  return new Promise(resolve => {
+    setTimeout(() => {
+      const after = { /* snapshot all widgets */ };
+      resolve({ before, after });
+    }, 300);
+  });
+}
+```
+
+#### Check if Listeners Are Attached
+```javascript
+// Directly set a value on a target and see if downstream reacts:
+() => {
+  const target = window.__widgetRegistry.get('chain_mirror');
+  const downstream = window.__widgetRegistry.get('chain_sum');
+  const before = downstream.get('linked_value');
+  target.set('linked_value', 99999);
+  target.save_changes();
+  return new Promise(resolve => {
+    setTimeout(() => {
+      const after = downstream.get('linked_value');
+      // Reset
+      target.set('linked_value', before);
+      target.save_changes();
+      resolve({ reacted: before !== after });
+    }, 200);
+  });
+}
+```
+
+### DevTools MCP Tips
+- **JupyterLab scrolling**: The notebook uses a windowed panel (`jp-WindowedPanel-outer`). Standard scroll methods often don't work. To find/interact with off-screen widgets, use `evaluate_script` to query DOM elements or click them programmatically rather than trying to scroll + screenshot.
+- **Clicking buttons**: If `mcp__chrome-devtools__click` times out on widget buttons, use `evaluate_script` to find and `.click()` them directly via DOM queries.
+- **Console messages**: Use `list_console_messages` with `types: ["log"]` and pagination (`pageIdx`, `pageSize`) to trace widget lifecycle. Debug logs use `[widgetId]` prefix format.
+- **Page not reloading on kernel restart**: `window` globals persist. Always check `__widgetRegistry.size` after restart to verify state.
+
+### Debug Logging (Temporary)
+The linked_counter `widget.js` currently has `console.log` statements in `render()`, `setupLinkedListener()`, and `updateLinkedValue()`. These trace registration order, listener attachment, and value computation. Remove them once debugging is complete.
+
 ## Known Limitations
 
-1. **Client-side Communication**: Not officially supported in JupyterBook yet
-2. **Large Data**: Static exports have size limitations
-3. **Browser Compatibility**: Modern browsers only (ES modules required)
-4. **Performance**: Complex interactions may be slower in static HTML
+1. **Stale Registry on Kernel Restart**: See bug description above — needs fix
+2. **Client-side Communication**: Not officially supported in JupyterBook yet
+3. **Large Data**: Static exports have size limitations
+4. **Browser Compatibility**: Modern browsers only (ES modules required)
+5. **Performance**: Complex interactions may be slower in static HTML
 
 ## Development Commands
 
@@ -334,8 +440,11 @@ Areas where we may need to contribute to upstream projects:
 
 ## Success Metrics
 
-- [ ] Widgets work in JupyterLab
-- [ ] Widgets work in static HTML exports  
+- [x] Widgets work in JupyterLab
+- [x] Inter-widget communication works (basic linking + chain propagation)
+- [ ] Fix stale registry on kernel restart (clear globals)
+- [ ] Remove debug logging from linked_counter/widget.js
+- [ ] Widgets work in static HTML exports (MyST/JupyterBook)
 - [ ] Inter-widget communication functions without Python kernel
 - [ ] Performance with 100k+ data points
 - [ ] Clear documentation and examples
