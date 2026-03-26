@@ -21,7 +21,7 @@ site:
     - title: Home
       url: /
     - title: Documentation
-      url: /CLAUDE
+      url: /AGENTS
     - title: GitHub
       url: https://github.com/yourusername/anywidget-experiments
   
@@ -39,7 +39,7 @@ build:
 # Table of contents
 toc:
   - file: README
-  - file: CLAUDE
+  - file: AGENTS
   - title: Getting Started
     children:
       - file: notebooks/01_getting_started
@@ -50,7 +50,7 @@ toc:
       - file: notebooks/04_complex_interactions
   - title: Static Export
     children:
-      - file: notebooks/05_static_export_demo
+      - file: notebooks/05_static_export_demo.md
   - title: Advanced Examples
     children:
       - file: examples/temporal_analysis

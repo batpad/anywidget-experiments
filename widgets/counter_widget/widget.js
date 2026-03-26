@@ -42,7 +42,7 @@ function render({ model, el }) {
     decrementBtn.onclick = () => {
         const currentValue = model.get('value');
         model.set('value', currentValue - 1);
-        model.save_changes();
+        try { model.save_changes(); } catch(e) {}
         
         // Emit custom event for inter-widget communication
         window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
@@ -61,7 +61,7 @@ function render({ model, el }) {
     incrementBtn.onclick = () => {
         const currentValue = model.get('value');
         model.set('value', currentValue + 1);
-        model.save_changes();
+        try { model.save_changes(); } catch(e) {}
         
         // Emit custom event for inter-widget communication
         window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
@@ -79,7 +79,7 @@ function render({ model, el }) {
     resetBtn.textContent = 'Reset';
     resetBtn.onclick = () => {
         model.set('value', 0);
-        model.save_changes();
+        try { model.save_changes(); } catch(e) {}
         
         // Emit custom event
         window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {

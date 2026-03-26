@@ -302,6 +302,9 @@ For LinkedCounterWidget linking to another LinkedCounterWidget:
 2. If target has `linked_value`, reads that (the "output"); otherwise reads `value`
 3. `setupLinkedListener()` subscribes to both `change:value` AND `change:linked_value` on the target
 
+### Known Bug: Lonboard fly_to Not Updating Map View
+**Status**: Unresolved. `m.fly_to(longitude=..., latitude=..., zoom=...)` does not animate/move the map when called from an ipywidgets `observe` callback. Setting `view_state` via the constructor works for initial state, but subsequent `fly_to()` calls from widget callbacks appear to be silently ignored. The `fly_to` method sends a custom message via `send()` to the frontend — it's unclear whether the message is received but not acted upon, or dropped. Needs further investigation with browser DevTools network/console inspection. Workaround: none currently; the map stays at its initial view_state.
+
 ### Known Bug: Stale Registry on Kernel Restart
 **Critical**: When the kernel restarts without a browser page reload, `window.__widgetRegistry` persists with stale model proxies from the old session. New widgets overwrite entries, but old listeners from the previous session linger. This causes unpredictable behavior — widgets may appear unlinked.
 

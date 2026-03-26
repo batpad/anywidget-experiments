@@ -7,7 +7,6 @@ window.__widgetEvents = window.__widgetEvents || new EventTarget();
 function render({ model, el }) {
     // Register this widget's render model in the global registry
     const widgetId = model.get('widget_id');
-    console.log(`[${widgetId}] render() called, registering in registry (size before: ${window.__widgetRegistry.size})`);
     window.__widgetRegistry.set(widgetId, model);
     model.on('destroy', () => {
         window.__widgetRegistry.delete(widgetId);
@@ -51,14 +50,14 @@ function render({ model, el }) {
     decrementBtn.textContent = '-';
     decrementBtn.onclick = () => {
         model.set('value', model.get('value') - 1);
-        model.save_changes();
+        try { model.save_changes(); } catch(e) {}
     };
     
     const incrementBtn = document.createElement('button');
     incrementBtn.textContent = '+';
     incrementBtn.onclick = () => {
         model.set('value', model.get('value') + 1);
-        model.save_changes();
+        try { model.save_changes(); } catch(e) {}
     };
     
     controls.appendChild(decrementBtn);
@@ -96,13 +95,13 @@ function render({ model, el }) {
     
     linkToInput.addEventListener('change', (e) => {
         model.set('link_to', e.target.value);
-        model.save_changes();
+        try { model.save_changes(); } catch(_) {}
         updateLinkedValue();
     });
-    
+
     linkModeSelect.addEventListener('change', (e) => {
         model.set('link_mode', e.target.value);
-        model.save_changes();
+        try { model.save_changes(); } catch(_) {}
         updateLinkedValue();
     });
     
@@ -114,7 +113,7 @@ function render({ model, el }) {
         const linkedModel = window.__widgetRegistry?.get(linkTo);
         if (!linkedModel) {
             model.set('status', `Cannot find widget: ${linkTo}`);
-            model.save_changes();
+            try { model.save_changes(); } catch(e) {}
             return;
         }
 
@@ -123,8 +122,6 @@ function render({ model, el }) {
         // For linked counters, read linked_value (the output); for regular counters, read value
         const hasLinkedValue = linkedModel.get('linked_value') !== undefined;
         const linkedValue = hasLinkedValue ? linkedModel.get('linked_value') : linkedModel.get('value');
-        console.log(`[${widgetId}] updateLinkedValue: linkTo=${linkTo}, mode=${mode}, myValue=${myValue}, hasLinkedValue=${hasLinkedValue}, linkedValue=${linkedValue}`);
-        
         let newLinkedValue = 0;
         switch(mode) {
             case 'mirror':
@@ -140,26 +137,23 @@ function render({ model, el }) {
         
         model.set('linked_value', newLinkedValue);
         model.set('status', `Linked to ${linkTo} (${mode})`);
-        model.save_changes();
+        try { model.save_changes(); } catch(e) {}
     }
     
     // Listen for changes to linked widget
     function setupLinkedListener() {
         const linkTo = model.get('link_to');
-        if (!linkTo) { console.log(`[${widgetId}] setupLinkedListener: no link_to`); return; }
+        if (!linkTo) return;
 
         const linkedModel = window.__widgetRegistry?.get(linkTo);
         if (linkedModel) {
-            console.log(`[${widgetId}] setupLinkedListener: FOUND ${linkTo} in registry, attaching listeners`);
             linkedModel.on('change:value', updateLinkedValue);
             linkedModel.on('change:linked_value', updateLinkedValue);
             updateLinkedValue();
         } else {
-            console.log(`[${widgetId}] setupLinkedListener: ${linkTo} NOT in registry, waiting...`);
             // Target not registered yet — wait for it
             const handler = (event) => {
                 if (event.detail.widgetId === linkTo) {
-                    console.log(`[${widgetId}] setupLinkedListener: ${linkTo} just registered! Retrying.`);
                     window.__widgetEvents.removeEventListener('widget-registered', handler);
                     setupLinkedListener(); // retry now that it's registered
                 }
