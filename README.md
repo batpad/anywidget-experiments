@@ -1,3 +1,9 @@
+# NOTE: None of this actually works
+
+This is some experiments with trying out creating some composable linked anywidget widgets in Jupyter notebooks and attempt to have them work statically exported as HTML via JupyterBook.
+
+This is currently mostly vibe-coded slop - the widgets work in a `jupyter lab` environment, but currently not in static exports.
+
 # Anywidget Composable Geospatial Widgets
 
 Interactive geospatial widgets for Jupyter notebooks that work in static HTML exports.
