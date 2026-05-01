@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Composable anywidget-based widgets for geospatial visualization",
   "scripts": {
-    "prebuild": "jupyter nbconvert --to notebook --execute --inplace notebooks/06_lonboard_static.ipynb notebooks/07_lonboard_interop.ipynb",
+    "prebuild": "jupyter nbconvert --to notebook --execute --inplace notebooks/03_lonboard_static.ipynb notebooks/04_lonboard_interop.ipynb",
     "build": "myst build --html",
     "serve": "python -m http.server -d _build/html",
     "dev": "jupyter lab"

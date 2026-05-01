@@ -1,57 +1,33 @@
-# MyST configuration for anywidget experiments
+# MyST configuration — see https://mystmd.org/guide/frontmatter
 version: 1
 project:
-  title: Anywidget Composable Geospatial Widgets
-  description: Interactive geospatial widgets using anywidget for Jupyter and static HTML
-  plugins:
-    - plugins/anywidget-static-export.mjs
+  title: Anywidget Experiments
+  description: Custom anywidget widgets that interoperate, render statically without a kernel, and play nicely with lonboard.
+  github: https://github.com/batpad/anywidget-experiments
   authors:
-    - name: Anywidget Experiments Team
+    - name: Anywidget Experiments
   keywords:
     - anywidget
+    - lonboard
+    - mystmd
+    - static-export
     - jupyter
-    - geospatial
-    - interactive
-    - widgets
-  github: https://github.com/yourusername/anywidget-experiments
+  plugins:
+    - plugins/anywidget-static-export.mjs
   toc:
-    - file: README
-    - file: AGENTS
-    - title: Getting Started
-      children:
-        - file: notebooks/01_getting_started
-        - file: notebooks/02_basic_map_viz
-    - title: Widget Communication
-      children:
-        - file: notebooks/03_widget_communication
-        - file: notebooks/04_complex_interactions
-    - title: Static Export
-      children:
-        - file: notebooks/05_static_export_demo.md
-        - file: notebooks/05_static_export_demo_notebook.ipynb
-        - file: notebooks/06_lonboard_static.ipynb
-        - file: notebooks/07_lonboard_interop.ipynb
-    - title: Advanced Examples
-      children:
-        - file: examples/temporal_analysis
-        - file: examples/spatial_filtering
-        - file: examples/linked_views
+    - file: README.md
+    - file: notebooks/01_anywidget_counter.ipynb
+    - file: notebooks/02_linked_counters.ipynb
+    - file: notebooks/03_lonboard_static.ipynb
+    - file: notebooks/04_lonboard_interop.ipynb
 
 site:
   template: book-theme
   title: Anywidget Experiments
-  logo: null
   nav:
-    - title: Home
-      url: /
-    - title: Documentation
-      url: /AGENTS
     - title: GitHub
-      url: https://github.com/yourusername/anywidget-experiments
-  
+      url: https://github.com/batpad/anywidget-experiments
   actions:
-    - title: Download
-      url: https://github.com/yourusername/anywidget-experiments
-  
+    - title: GitHub
+      url: https://github.com/batpad/anywidget-experiments
   domains: []
-

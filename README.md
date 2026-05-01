@@ -1,139 +1,64 @@
-# NOTE: None of this actually works
+---
+title: Anywidget Experiments
+---
 
-This is some experiments with trying out creating some composable linked anywidget widgets in Jupyter notebooks and attempt to have them work statically exported as HTML via JupyterBook.
+# Anywidget Experiments
 
-This is currently mostly vibe-coded slop - the widgets work in a `jupyter lab` environment, but currently not in static exports.
+Custom [anywidget](https://anywidget.dev/) widgets that interoperate, render statically without a kernel, and play nicely with [lonboard](https://developmentseed.org/lonboard/).
 
-# Anywidget Composable Geospatial Widgets
+**Live demo:** [https://batpad.github.io/anywidget-experiments/](https://batpad.github.io/anywidget-experiments/)
 
-Interactive geospatial widgets for Jupyter notebooks that work in static HTML exports.
+The pages on the live site are static HTML — no kernel running, no server, just a `mystmd` build. Click the buttons, scrub the counters, watch lonboard's points resize. All of it is JS-only at runtime.
 
-## Overview
+## Walkthrough
 
-This project demonstrates how to build composable, interactive widgets using `anywidget` that:
-- Work seamlessly in Jupyter notebooks
-- Enable inter-widget communication
-- Function in static HTML exports via JupyterBook/MyST
-- Integrate with geospatial visualization libraries like `lonboard`
+1. **[An anywidget, statically](notebooks/01_anywidget_counter.ipynb)** — a single `CounterWidget`. Click `+`/`-`/Reset; the count updates locally with no kernel.
+2. **[Anywidgets talking to each other](notebooks/02_linked_counters.ipynb)** — two widgets on the same page, wired through a shared in-page registry.
+3. **[Lonboard, statically](notebooks/03_lonboard_static.ipynb)** — a minimal `lonboard.Map` rendered with binary Parquet buffers preserved through MyST's build pipeline.
+4. **[Lonboard ↔ anywidget interop](notebooks/04_lonboard_interop.ipynb)** — a counter drives a lonboard layer's point radius via a generic binder widget.
 
-## Quick Start
+## How it works
 
-### Installation
+A small `mystmd` plugin at [`plugins/anywidget-static-export.mjs`](plugins/README.md) rewrites notebook widget outputs into AST nodes the `@myst-theme/anywidget` renderer can mount, with a runtime shim that no-ops the kernel-sync calls and hydrates binary buffers (Apache Parquet for lonboard) at page load. The plugin's README has the full catalogue of workarounds — they touch mystmd, myst-theme, `@jupyter-widgets/base`, and lonboard itself — and the [`docs/`](docs/) folder has a write-up per upstream fix.
 
-1. Install Python dependencies:
+## Local development
+
 ```bash
+git clone https://github.com/batpad/anywidget-experiments.git
+cd anywidget-experiments
+
+python -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-```
 
-2. Install MyST with anywidget support:
-```bash
-npm install -g mystmd
-# or if you prefer using the package.json:
 npm install
+npm run build      # runs prebuild (executes lonboard notebooks via nbclient) then myst build
+npm run serve      # python -m http.server on _build/html
 ```
 
-3. Run Jupyter Lab:
+For a development loop on a single notebook:
+
 ```bash
-jupyter lab
+jupyter lab notebooks/04_lonboard_interop.ipynb
+# edit, "Restart Kernel and Run All", save with widget state, then `npm run build`
 ```
 
-### Building Static Site
-
-Build the static HTML site with MyST:
-```bash
-myst build --html
-# or
-npm run build
-```
-
-Serve the static site locally:
-```bash
-python -m http.server -d _build/html
-# or
-npm run serve
-```
-
-## Project Structure
+## Repo structure
 
 ```
-├── widgets/              # Reusable anywidget modules
-├── notebooks/            # Tutorial notebooks
-├── examples/             # Advanced examples
-├── tests/                # Widget tests
-├── CLAUDE.md            # Technical documentation
-└── myst.yml             # MyST/JupyterBook configuration
+notebooks/   The four walkthrough notebooks.
+widgets/     CounterWidget, LinkedCounterWidget, WidgetBinder — the anywidgets used in the walkthrough.
+plugins/     The static-export mystmd plugin + README explaining each hack.
+docs/        Per-upstream-fix write-ups (mystmd comm capture, ipywidgets buffer serialization, myst-theme shadow-DOM CSS, lonboard view_state).
+.github/     GitHub Actions workflow that builds + deploys the site to Pages on every push to main.
 ```
 
-## Key Features
+## Acknowledgments
 
-### 🎯 Composable Widgets
-- Modular widget design
-- Shared state management
-- Event-based communication
-
-### 🗺️ Geospatial Focus
-- Integration with lonboard
-- GPU-accelerated map rendering
-- Support for large datasets
-
-### 📊 Static Export Support
-- Widgets work without Python kernel
-- Client-side interactivity preserved
-- JupyterBook/MyST compatible
-
-### 🔄 Inter-Widget Communication
-- Multiple communication patterns
-- Backbone model sharing
-- Custom event system
-
-## Examples
-
-### Simple Counter Widget
-A basic widget demonstrating anywidget fundamentals.
-
-### Map with Time Slider
-Interactive map visualization with temporal controls.
-
-### Linked Statistical Views
-Multiple widgets sharing selection state.
-
-### Spatial Filtering
-Draw regions on a map to filter data in connected widgets.
-
-## Development
-
-### Creating a New Widget
-
-1. Create a new directory in `widgets/`
-2. Add Python class extending `anywidget.AnyWidget`
-3. Create JavaScript module with `render` function
-4. Add widget to a notebook for testing
-
-### Testing
-
-Run the test suite:
-```bash
-pytest tests/
-```
-
-### Contributing
-
-See [CLAUDE.md](CLAUDE.md) for technical details and contribution guidelines.
-
-## Resources
-
-- [Anywidget Documentation](https://anywidget.dev/)
-- [Lonboard Documentation](https://developmentseed.org/lonboard/)
-- [MyST Documentation](https://mystmd.org/)
-- [JupyterBook Documentation](https://jupyterbook.org/)
+- [anywidget](https://anywidget.dev) by [@manzt](https://github.com/manzt)
+- [lonboard](https://developmentseed.org/lonboard/) by Development Seed
+- [mystmd](https://mystmd.org/) and [myst-theme](https://github.com/jupyter-book/myst-theme) by Jupyter Book
 
 ## License
 
 MIT
-
-## Acknowledgments
-
-This project builds on the excellent work of:
-- The anywidget team for simplifying widget development
-- Development Seed for lonboard
-- The JupyterBook/MyST team for static publishing support
