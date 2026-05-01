@@ -29,6 +29,7 @@ project:
       children:
         - file: notebooks/05_static_export_demo.md
         - file: notebooks/05_static_export_demo_notebook.ipynb
+        - file: notebooks/06_lonboard_static.ipynb
     - title: Advanced Examples
       children:
         - file: examples/temporal_analysis
