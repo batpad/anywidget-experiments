@@ -90,6 +90,45 @@ function __mystEnsureShadowCss(el, cssText, cacheKey) {
   root.appendChild(style);
 }
 
+// Cross-widget interop registry. Populated by __mystSetupModel for each root and
+// every transitively-referenced sub-model. Keyed by widget_id (user-set), by
+// _anywidget_id (Python class path, e.g. "lonboard._map.Map"), and by model_id
+// (UUID from the kernel). Lookups can use any of these keys.
+function __mystRegistry() {
+  if (!window.__myst_widgets) {
+    const _byKey = new Map();
+    const _all = [];
+    window.__myst_widgets = {
+      register: function (model, keys) {
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          if (k && !_byKey.has(k)) _byKey.set(k, model);
+        }
+        if (_all.indexOf(model) < 0) _all.push(model);
+      },
+      get: function (key) { return _byKey.get(key); },
+      findFirst: function (pred) { return _all.find(pred); },
+      filter: function (pred) { return _all.filter(pred); },
+      all: function () { return _all.slice(); },
+    };
+  }
+  return window.__myst_widgets;
+}
+
+function __mystKeysForState(state, rootId) {
+  const keys = [
+    rootId,
+    state && state.widget_id,
+    state && state._anywidget_id,
+  ];
+  // Alias by lonboard layer/control type so binder widgets can target a layer
+  // without knowing its UUID. Note: only the FIRST widget with a given
+  // _layer_type / _control_type wins the alias slot.
+  if (state && state._layer_type) keys.push('_layer_type:' + state._layer_type);
+  if (state && state._control_type) keys.push('_control_type:' + state._control_type);
+  return keys;
+}
+
 function __mystSetupModel(model) {
   if (!model || model.__mystSetupDone) return;
   model.__mystSetupDone = true;
@@ -130,12 +169,25 @@ function __mystSetupModel(model) {
     }
   }
 
-  // (3) Build sub-model registry from _myst_submodels and attach a widget_manager stub.
+  // (3) Build sub-model registry from _myst_submodels and attach a widget_manager
+  //     stub. We pre-create every proxy at setup time (rather than lazily on first
+  //     get_model call) so the cross-widget registry is fully populated before any
+  //     widget on the page calls into it (e.g. a binder widget looking up a target).
   const submodels = (typeof model.get === 'function' && model.get('_myst_submodels')) || {};
   const cache = new Map();
+  const reg = __mystRegistry();
+  for (const [id, entry] of Object.entries(submodels)) {
+    const proxy = new __MystSubModel(entry.state, entry.buffers);
+    proxy.model_id = id;
+    proxy.name = entry.model_name;
+    proxy.module = entry.model_module;
+    cache.set(id, proxy);
+    reg.register(proxy, __mystKeysForState(entry.state, id));
+  }
   const wm = {
     get_model: function (id) {
       if (cache.has(id)) return Promise.resolve(cache.get(id));
+      // Late-arrival fallback: build the proxy if for some reason it wasn't pre-created.
       const entry = submodels[id];
       if (!entry) return Promise.reject(new Error('[myst-shim] unknown sub-model: ' + id));
       const proxy = new __MystSubModel(entry.state, entry.buffers);
@@ -144,10 +196,14 @@ function __mystSetupModel(model) {
       proxy.name = entry.model_name;
       proxy.module = entry.model_module;
       cache.set(id, proxy);
+      reg.register(proxy, __mystKeysForState(entry.state, id));
       return Promise.resolve(proxy);
     },
     resolve_url: function (url) { return Promise.resolve(url); },
   };
+  // Wire widget_manager onto every sub-model proxy (post-cache so we don't capture
+  // wm in the loop above before it's defined).
+  for (const proxy of cache.values()) proxy.widget_manager = wm;
   // MystAnyModel exposes widget_manager as a getter-only property on its prototype
   // that throws "does not exist". Plain assignment is silently dropped (no setter);
   // we install a data property on the instance to shadow the prototype getter.
@@ -156,6 +212,13 @@ function __mystSetupModel(model) {
     writable: true,
     value: wm,
   });
+
+  // (4) Register the root model in the cross-widget registry. Pull keys from the
+  //     private _myst_* fields we stashed in buildInitialModel.
+  const rootId = (typeof model.get === 'function' && model.get('_myst_root_id')) || null;
+  const widgetIdField = (typeof model.get === 'function' && model.get('widget_id')) || null;
+  const anywidgetIdField = (typeof model.get === 'function' && model.get('_myst_anywidget_id')) || null;
+  reg.register(model, [rootId, widgetIdField, anywidgetIdField]);
 }
 // === MyST static-export shim ends ===
 

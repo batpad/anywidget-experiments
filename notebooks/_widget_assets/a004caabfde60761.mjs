@@ -90,6 +90,45 @@ function __mystEnsureShadowCss(el, cssText, cacheKey) {
   root.appendChild(style);
 }
 
+// Cross-widget interop registry. Populated by __mystSetupModel for each root and
+// every transitively-referenced sub-model. Keyed by widget_id (user-set), by
+// _anywidget_id (Python class path, e.g. "lonboard._map.Map"), and by model_id
+// (UUID from the kernel). Lookups can use any of these keys.
+function __mystRegistry() {
+  if (!window.__myst_widgets) {
+    const _byKey = new Map();
+    const _all = [];
+    window.__myst_widgets = {
+      register: function (model, keys) {
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          if (k && !_byKey.has(k)) _byKey.set(k, model);
+        }
+        if (_all.indexOf(model) < 0) _all.push(model);
+      },
+      get: function (key) { return _byKey.get(key); },
+      findFirst: function (pred) { return _all.find(pred); },
+      filter: function (pred) { return _all.filter(pred); },
+      all: function () { return _all.slice(); },
+    };
+  }
+  return window.__myst_widgets;
+}
+
+function __mystKeysForState(state, rootId) {
+  const keys = [
+    rootId,
+    state && state.widget_id,
+    state && state._anywidget_id,
+  ];
+  // Alias by lonboard layer/control type so binder widgets can target a layer
+  // without knowing its UUID. Note: only the FIRST widget with a given
+  // _layer_type / _control_type wins the alias slot.
+  if (state && state._layer_type) keys.push('_layer_type:' + state._layer_type);
+  if (state && state._control_type) keys.push('_control_type:' + state._control_type);
+  return keys;
+}
+
 function __mystSetupModel(model) {
   if (!model || model.__mystSetupDone) return;
   model.__mystSetupDone = true;
@@ -130,12 +169,25 @@ function __mystSetupModel(model) {
     }
   }
 
-  // (3) Build sub-model registry from _myst_submodels and attach a widget_manager stub.
+  // (3) Build sub-model registry from _myst_submodels and attach a widget_manager
+  //     stub. We pre-create every proxy at setup time (rather than lazily on first
+  //     get_model call) so the cross-widget registry is fully populated before any
+  //     widget on the page calls into it (e.g. a binder widget looking up a target).
   const submodels = (typeof model.get === 'function' && model.get('_myst_submodels')) || {};
   const cache = new Map();
+  const reg = __mystRegistry();
+  for (const [id, entry] of Object.entries(submodels)) {
+    const proxy = new __MystSubModel(entry.state, entry.buffers);
+    proxy.model_id = id;
+    proxy.name = entry.model_name;
+    proxy.module = entry.model_module;
+    cache.set(id, proxy);
+    reg.register(proxy, __mystKeysForState(entry.state, id));
+  }
   const wm = {
     get_model: function (id) {
       if (cache.has(id)) return Promise.resolve(cache.get(id));
+      // Late-arrival fallback: build the proxy if for some reason it wasn't pre-created.
       const entry = submodels[id];
       if (!entry) return Promise.reject(new Error('[myst-shim] unknown sub-model: ' + id));
       const proxy = new __MystSubModel(entry.state, entry.buffers);
@@ -144,10 +196,14 @@ function __mystSetupModel(model) {
       proxy.name = entry.model_name;
       proxy.module = entry.model_module;
       cache.set(id, proxy);
+      reg.register(proxy, __mystKeysForState(entry.state, id));
       return Promise.resolve(proxy);
     },
     resolve_url: function (url) { return Promise.resolve(url); },
   };
+  // Wire widget_manager onto every sub-model proxy (post-cache so we don't capture
+  // wm in the loop above before it's defined).
+  for (const proxy of cache.values()) proxy.widget_manager = wm;
   // MystAnyModel exposes widget_manager as a getter-only property on its prototype
   // that throws "does not exist". Plain assignment is silently dropped (no setter);
   // we install a data property on the instance to shadow the prototype getter.
@@ -156,145 +212,109 @@ function __mystSetupModel(model) {
     writable: true,
     value: wm,
   });
+
+  // (4) Register the root model in the cross-widget registry. Pull keys from the
+  //     private _myst_* fields we stashed in buildInitialModel.
+  const rootId = (typeof model.get === 'function' && model.get('_myst_root_id')) || null;
+  const widgetIdField = (typeof model.get === 'function' && model.get('widget_id')) || null;
+  const anywidgetIdField = (typeof model.get === 'function' && model.get('_myst_anywidget_id')) || null;
+  reg.register(model, [rootId, widgetIdField, anywidgetIdField]);
 }
 // === MyST static-export shim ends ===
 
-// Counter widget JavaScript module
-// Demonstrates basic anywidget patterns and inter-widget communication
+// WidgetBinder: subscribe to a source widget's trait change and write to a
+// target widget's trait. Both widgets are looked up via window.__myst_widgets,
+// which the static-export shim populates with all root + sub-models on the page.
+//
+// In a JupyterLab kernel context this widget does nothing useful — Python
+// observers are the right tool there. This is for static export, where there's
+// no kernel and we need a JS-only binding.
 
-// Global widget registry for inter-widget communication
-window.__widgetRegistry = window.__widgetRegistry || new Map();
-window.__widgetEvents = window.__widgetEvents || new EventTarget();
+function pollFor(predicate, timeout) {
+    const start = Date.now();
+    return new Promise((resolve, reject) => {
+        const tick = () => {
+            const v = predicate();
+            if (v !== undefined && v !== null) return resolve(v);
+            if (Date.now() - start > timeout) {
+                return reject(new Error("[binder] timeout"));
+            }
+            setTimeout(tick, 50);
+        };
+        tick();
+    });
+}
+
+// Set a value at a dotted path on a target model. For leaf paths we simply
+// model.set(key, value). For nested paths (e.g. "view_state.zoom"), we read
+// the top-level object, merge the leaf, and set it back so listeners see the
+// change as a single update.
+function setByPath(model, path, value) {
+    const parts = path.split(".");
+    if (parts.length === 1) {
+        model.set(parts[0], value);
+        return;
+    }
+    const topKey = parts[0];
+    const existing = model.get(topKey);
+    const next = (existing && typeof existing === "object") ? { ...existing } : {};
+    let cursor = next;
+    for (let i = 1; i < parts.length - 1; i++) {
+        const k = parts[i];
+        cursor[k] = (cursor[k] && typeof cursor[k] === "object") ? { ...cursor[k] } : {};
+        cursor = cursor[k];
+    }
+    cursor[parts[parts.length - 1]] = value;
+    model.set(topKey, next);
+}
 
 function render({ model, el }) {
-    // Register this widget's render model in the global registry
-    // (must happen in render, not initialize, because the render proxy is the live one)
-    const widgetId = model.get('widget_id');
-    window.__widgetRegistry.set(widgetId, model);
-    model.on('destroy', () => {
-        window.__widgetRegistry.delete(widgetId);
-    });
-    window.__widgetEvents.dispatchEvent(new CustomEvent('widget-registered', {
-        detail: { widgetId }
-    }));
+    const sourceId = model.get("source_widget_id");
+    const sourceField = model.get("source_field") || "value";
+    const targetId = model.get("target_widget_id");
+    const targetField = model.get("target_field");
+    const multiplier = model.get("multiplier");
+    const offset = model.get("offset");
+    const label = model.get("label") || `${sourceId}.${sourceField} → ${targetId}.${targetField}`;
 
-    // Create widget container
-    const container = document.createElement('div');
-    container.className = 'counter-widget';
-    
-    // Create label
-    const label = document.createElement('h3');
-    label.textContent = model.get('label');
-    container.appendChild(label);
-    
-    // Create value display
-    const valueDisplay = document.createElement('div');
-    valueDisplay.className = 'counter-value';
-    valueDisplay.textContent = model.get('value');
-    container.appendChild(valueDisplay);
-    
-    // Create button container
-    const buttonContainer = document.createElement('div');
-    buttonContainer.className = 'counter-buttons';
-    
-    // Decrement button
-    const decrementBtn = document.createElement('button');
-    decrementBtn.textContent = '-';
-    decrementBtn.onclick = () => {
-        const currentValue = model.get('value');
-        model.set('value', currentValue - 1);
-        model.save_changes();
-        
-        // Emit custom event for inter-widget communication
-        window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
-            detail: {
-                widgetId: model.get('widget_id'),
-                value: currentValue - 1,
-                action: 'decrement'
-            }
-        }));
-    };
-    buttonContainer.appendChild(decrementBtn);
-    
-    // Increment button
-    const incrementBtn = document.createElement('button');
-    incrementBtn.textContent = '+';
-    incrementBtn.onclick = () => {
-        const currentValue = model.get('value');
-        model.set('value', currentValue + 1);
-        model.save_changes();
-        
-        // Emit custom event for inter-widget communication
-        window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
-            detail: {
-                widgetId: model.get('widget_id'),
-                value: currentValue + 1,
-                action: 'increment'
-            }
-        }));
-    };
-    buttonContainer.appendChild(incrementBtn);
-    
-    // Reset button
-    const resetBtn = document.createElement('button');
-    resetBtn.textContent = 'Reset';
-    resetBtn.onclick = () => {
-        model.set('value', 0);
-        model.save_changes();
-        
-        // Emit custom event
-        window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
-            detail: {
-                widgetId: model.get('widget_id'),
-                value: 0,
-                action: 'reset'
-            }
-        }));
-    };
-    buttonContainer.appendChild(resetBtn);
-    
-    container.appendChild(buttonContainer);
-    
-    // Add info section
-    const infoSection = document.createElement('div');
-    infoSection.className = 'counter-info';
-    infoSection.innerHTML = `<small>Widget ID: ${model.get('widget_id')}</small>`;
-    container.appendChild(infoSection);
-    
-    // Update display when value changes
-    model.on('change:value', () => {
-        valueDisplay.textContent = model.get('value');
-        valueDisplay.classList.add('value-changed');
-        setTimeout(() => {
-            valueDisplay.classList.remove('value-changed');
-        }, 300);
+    el.style.fontFamily = "ui-monospace, SFMono-Regular, monospace";
+    el.style.fontSize = "12px";
+    el.style.padding = "8px 12px";
+    el.style.borderRadius = "6px";
+    el.style.background = "#f6f8fa";
+    el.style.color = "#24292e";
+    el.style.border = "1px solid #e1e4e8";
+    el.style.maxWidth = "fit-content";
+
+    const status = document.createElement("div");
+    el.appendChild(status);
+    status.textContent = `🔗 binder: waiting…  (${label})`;
+
+    const reg = window.__myst_widgets;
+    if (!reg) {
+        status.textContent = "❌ window.__myst_widgets not initialized; binder cannot run";
+        return;
+    }
+
+    Promise.all([
+        pollFor(() => reg.get(sourceId), 5000),
+        pollFor(() => reg.get(targetId), 5000),
+    ]).then(([source, target]) => {
+        const apply = () => {
+            const raw = source.get(sourceField);
+            const next = (typeof raw === "number") ? raw * multiplier + offset : raw;
+            setByPath(target, targetField, next);
+        };
+        source.on(`change:${sourceField}`, apply);
+        apply(); // also fire once at startup so the target reflects current source state
+        status.textContent = `✅ ${label}`;
+    }).catch(err => {
+        status.textContent = `❌ binder failed: ${err.message}`;
+        console.error("[binder] failed", err, { sourceId, targetId });
     });
-    
-    // Update label when it changes
-    model.on('change:label', () => {
-        label.textContent = model.get('label');
-    });
-    
-    // Listen for events from other widgets
-    const handleExternalEvent = (event) => {
-        // Only respond to events from other widgets
-        if (event.detail.widgetId !== model.get('widget_id')) {
-            console.log(`Widget ${model.get('widget_id')} received event from ${event.detail.widgetId}`);
-            // Could implement synchronized behavior here
-        }
-    };
-    
-    window.__widgetEvents.addEventListener('counter-changed', handleExternalEvent);
-    
-    // Clean up event listener on destroy
-    el.addEventListener('remove', () => {
-        window.__widgetEvents.removeEventListener('counter-changed', handleExternalEvent);
-    });
-    
-    // Append to element
-    el.appendChild(container);
 }
 const __mystUserDefault = {  render  };
+
 
 // === MyST static-export shim re-export begins ===
 const __mystOrigInit = (typeof __mystUserDefault === 'object' && __mystUserDefault) ? __mystUserDefault.initialize : (typeof initialize === 'function' ? initialize : undefined);

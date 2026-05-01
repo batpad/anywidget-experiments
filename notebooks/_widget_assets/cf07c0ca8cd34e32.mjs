@@ -90,6 +90,45 @@ function __mystEnsureShadowCss(el, cssText, cacheKey) {
   root.appendChild(style);
 }
 
+// Cross-widget interop registry. Populated by __mystSetupModel for each root and
+// every transitively-referenced sub-model. Keyed by widget_id (user-set), by
+// _anywidget_id (Python class path, e.g. "lonboard._map.Map"), and by model_id
+// (UUID from the kernel). Lookups can use any of these keys.
+function __mystRegistry() {
+  if (!window.__myst_widgets) {
+    const _byKey = new Map();
+    const _all = [];
+    window.__myst_widgets = {
+      register: function (model, keys) {
+        for (var i = 0; i < keys.length; i++) {
+          var k = keys[i];
+          if (k && !_byKey.has(k)) _byKey.set(k, model);
+        }
+        if (_all.indexOf(model) < 0) _all.push(model);
+      },
+      get: function (key) { return _byKey.get(key); },
+      findFirst: function (pred) { return _all.find(pred); },
+      filter: function (pred) { return _all.filter(pred); },
+      all: function () { return _all.slice(); },
+    };
+  }
+  return window.__myst_widgets;
+}
+
+function __mystKeysForState(state, rootId) {
+  const keys = [
+    rootId,
+    state && state.widget_id,
+    state && state._anywidget_id,
+  ];
+  // Alias by lonboard layer/control type so binder widgets can target a layer
+  // without knowing its UUID. Note: only the FIRST widget with a given
+  // _layer_type / _control_type wins the alias slot.
+  if (state && state._layer_type) keys.push('_layer_type:' + state._layer_type);
+  if (state && state._control_type) keys.push('_control_type:' + state._control_type);
+  return keys;
+}
+
 function __mystSetupModel(model) {
   if (!model || model.__mystSetupDone) return;
   model.__mystSetupDone = true;
@@ -130,12 +169,25 @@ function __mystSetupModel(model) {
     }
   }
 
-  // (3) Build sub-model registry from _myst_submodels and attach a widget_manager stub.
+  // (3) Build sub-model registry from _myst_submodels and attach a widget_manager
+  //     stub. We pre-create every proxy at setup time (rather than lazily on first
+  //     get_model call) so the cross-widget registry is fully populated before any
+  //     widget on the page calls into it (e.g. a binder widget looking up a target).
   const submodels = (typeof model.get === 'function' && model.get('_myst_submodels')) || {};
   const cache = new Map();
+  const reg = __mystRegistry();
+  for (const [id, entry] of Object.entries(submodels)) {
+    const proxy = new __MystSubModel(entry.state, entry.buffers);
+    proxy.model_id = id;
+    proxy.name = entry.model_name;
+    proxy.module = entry.model_module;
+    cache.set(id, proxy);
+    reg.register(proxy, __mystKeysForState(entry.state, id));
+  }
   const wm = {
     get_model: function (id) {
       if (cache.has(id)) return Promise.resolve(cache.get(id));
+      // Late-arrival fallback: build the proxy if for some reason it wasn't pre-created.
       const entry = submodels[id];
       if (!entry) return Promise.reject(new Error('[myst-shim] unknown sub-model: ' + id));
       const proxy = new __MystSubModel(entry.state, entry.buffers);
@@ -144,10 +196,14 @@ function __mystSetupModel(model) {
       proxy.name = entry.model_name;
       proxy.module = entry.model_module;
       cache.set(id, proxy);
+      reg.register(proxy, __mystKeysForState(entry.state, id));
       return Promise.resolve(proxy);
     },
     resolve_url: function (url) { return Promise.resolve(url); },
   };
+  // Wire widget_manager onto every sub-model proxy (post-cache so we don't capture
+  // wm in the loop above before it's defined).
+  for (const proxy of cache.values()) proxy.widget_manager = wm;
   // MystAnyModel exposes widget_manager as a getter-only property on its prototype
   // that throws "does not exist". Plain assignment is silently dropped (no setter);
   // we install a data property on the instance to shadow the prototype getter.
@@ -156,19 +212,27 @@ function __mystSetupModel(model) {
     writable: true,
     value: wm,
   });
+
+  // (4) Register the root model in the cross-widget registry. Pull keys from the
+  //     private _myst_* fields we stashed in buildInitialModel.
+  const rootId = (typeof model.get === 'function' && model.get('_myst_root_id')) || null;
+  const widgetIdField = (typeof model.get === 'function' && model.get('widget_id')) || null;
+  const anywidgetIdField = (typeof model.get === 'function' && model.get('_myst_anywidget_id')) || null;
+  reg.register(model, [rootId, widgetIdField, anywidgetIdField]);
 }
 // === MyST static-export shim ends ===
 
-// Linked counter widget that demonstrates inter-widget communication
+// Counter widget JavaScript module
+// Demonstrates basic anywidget patterns and inter-widget communication
 
-// Ensure globals exist
+// Global widget registry for inter-widget communication
 window.__widgetRegistry = window.__widgetRegistry || new Map();
 window.__widgetEvents = window.__widgetEvents || new EventTarget();
 
 function render({ model, el }) {
     // Register this widget's render model in the global registry
+    // (must happen in render, not initialize, because the render proxy is the live one)
     const widgetId = model.get('widget_id');
-    console.log(`[${widgetId}] render() called, registering in registry (size before: ${window.__widgetRegistry.size})`);
     window.__widgetRegistry.set(widgetId, model);
     model.on('destroy', () => {
         window.__widgetRegistry.delete(widgetId);
@@ -177,180 +241,120 @@ function render({ model, el }) {
         detail: { widgetId }
     }));
 
+    // Create widget container
     const container = document.createElement('div');
-    container.className = 'linked-counter-widget';
+    container.className = 'counter-widget';
     
-    // Header with label
-    const header = document.createElement('div');
-    header.className = 'widget-header';
-    header.innerHTML = `
-        <h3>${model.get('label')}</h3>
-        <span class="widget-id">${model.get('widget_id')}</span>
-    `;
-    container.appendChild(header);
+    // Create label
+    const label = document.createElement('h3');
+    label.textContent = model.get('label');
+    container.appendChild(label);
     
-    // Value display
-    const valueSection = document.createElement('div');
-    valueSection.className = 'value-section';
-    valueSection.innerHTML = `
-        <div class="main-value">
-            <span class="value-label">Value:</span>
-            <span class="value-display">${model.get('value')}</span>
-        </div>
-        <div class="linked-value">
-            <span class="value-label">Linked:</span>
-            <span class="linked-display">${model.get('linked_value')}</span>
-        </div>
-    `;
-    container.appendChild(valueSection);
+    // Create value display
+    const valueDisplay = document.createElement('div');
+    valueDisplay.className = 'counter-value';
+    valueDisplay.textContent = model.get('value');
+    container.appendChild(valueDisplay);
     
-    // Controls
-    const controls = document.createElement('div');
-    controls.className = 'controls';
+    // Create button container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.className = 'counter-buttons';
     
+    // Decrement button
     const decrementBtn = document.createElement('button');
     decrementBtn.textContent = '-';
     decrementBtn.onclick = () => {
-        model.set('value', model.get('value') - 1);
-        model.save_changes();
+        const currentValue = model.get('value');
+        model.set('value', currentValue - 1);
+        try { model.save_changes(); } catch(e) {}
+        
+        // Emit custom event for inter-widget communication
+        window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
+            detail: {
+                widgetId: model.get('widget_id'),
+                value: currentValue - 1,
+                action: 'decrement'
+            }
+        }));
     };
+    buttonContainer.appendChild(decrementBtn);
     
+    // Increment button
     const incrementBtn = document.createElement('button');
     incrementBtn.textContent = '+';
     incrementBtn.onclick = () => {
-        model.set('value', model.get('value') + 1);
-        model.save_changes();
+        const currentValue = model.get('value');
+        model.set('value', currentValue + 1);
+        try { model.save_changes(); } catch(e) {}
+        
+        // Emit custom event for inter-widget communication
+        window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
+            detail: {
+                widgetId: model.get('widget_id'),
+                value: currentValue + 1,
+                action: 'increment'
+            }
+        }));
+    };
+    buttonContainer.appendChild(incrementBtn);
+    
+    // Reset button
+    const resetBtn = document.createElement('button');
+    resetBtn.textContent = 'Reset';
+    resetBtn.onclick = () => {
+        model.set('value', 0);
+        try { model.save_changes(); } catch(e) {}
+        
+        // Emit custom event
+        window.__widgetEvents.dispatchEvent(new CustomEvent('counter-changed', {
+            detail: {
+                widgetId: model.get('widget_id'),
+                value: 0,
+                action: 'reset'
+            }
+        }));
+    };
+    buttonContainer.appendChild(resetBtn);
+    
+    container.appendChild(buttonContainer);
+    
+    // Add info section
+    const infoSection = document.createElement('div');
+    infoSection.className = 'counter-info';
+    infoSection.innerHTML = `<small>Widget ID: ${model.get('widget_id')}</small>`;
+    container.appendChild(infoSection);
+    
+    // Update display when value changes
+    model.on('change:value', () => {
+        valueDisplay.textContent = model.get('value');
+        valueDisplay.classList.add('value-changed');
+        setTimeout(() => {
+            valueDisplay.classList.remove('value-changed');
+        }, 300);
+    });
+    
+    // Update label when it changes
+    model.on('change:label', () => {
+        label.textContent = model.get('label');
+    });
+    
+    // Listen for events from other widgets
+    const handleExternalEvent = (event) => {
+        // Only respond to events from other widgets
+        if (event.detail.widgetId !== model.get('widget_id')) {
+            console.log(`Widget ${model.get('widget_id')} received event from ${event.detail.widgetId}`);
+            // Could implement synchronized behavior here
+        }
     };
     
-    controls.appendChild(decrementBtn);
-    controls.appendChild(incrementBtn);
-    container.appendChild(controls);
+    window.__widgetEvents.addEventListener('counter-changed', handleExternalEvent);
     
-    // Link configuration
-    const linkConfig = document.createElement('div');
-    linkConfig.className = 'link-config';
-    linkConfig.innerHTML = `
-        <div class="config-row">
-            <label>Link to:</label>
-            <input type="text" class="link-to-input" value="${model.get('link_to')}" placeholder="Widget ID">
-        </div>
-        <div class="config-row">
-            <label>Mode:</label>
-            <select class="link-mode-select">
-                <option value="mirror" ${model.get('link_mode') === 'mirror' ? 'selected' : ''}>Mirror</option>
-                <option value="sum" ${model.get('link_mode') === 'sum' ? 'selected' : ''}>Sum</option>
-                <option value="diff" ${model.get('link_mode') === 'diff' ? 'selected' : ''}>Difference</option>
-            </select>
-        </div>
-    `;
-    container.appendChild(linkConfig);
-    
-    // Status
-    const status = document.createElement('div');
-    status.className = 'status';
-    status.textContent = model.get('status');
-    container.appendChild(status);
-    
-    // Setup event handlers
-    const linkToInput = linkConfig.querySelector('.link-to-input');
-    const linkModeSelect = linkConfig.querySelector('.link-mode-select');
-    
-    linkToInput.addEventListener('change', (e) => {
-        model.set('link_to', e.target.value);
-        model.save_changes();
-        updateLinkedValue();
+    // Clean up event listener on destroy
+    el.addEventListener('remove', () => {
+        window.__widgetEvents.removeEventListener('counter-changed', handleExternalEvent);
     });
     
-    linkModeSelect.addEventListener('change', (e) => {
-        model.set('link_mode', e.target.value);
-        model.save_changes();
-        updateLinkedValue();
-    });
-    
-    // Function to update linked value based on mode
-    function updateLinkedValue() {
-        const linkTo = model.get('link_to');
-        if (!linkTo) return;
-
-        const linkedModel = window.__widgetRegistry?.get(linkTo);
-        if (!linkedModel) {
-            model.set('status', `Cannot find widget: ${linkTo}`);
-            model.save_changes();
-            return;
-        }
-
-        const mode = model.get('link_mode');
-        const myValue = model.get('value');
-        // For linked counters, read linked_value (the output); for regular counters, read value
-        const hasLinkedValue = linkedModel.get('linked_value') !== undefined;
-        const linkedValue = hasLinkedValue ? linkedModel.get('linked_value') : linkedModel.get('value');
-        console.log(`[${widgetId}] updateLinkedValue: linkTo=${linkTo}, mode=${mode}, myValue=${myValue}, hasLinkedValue=${hasLinkedValue}, linkedValue=${linkedValue}`);
-        
-        let newLinkedValue = 0;
-        switch(mode) {
-            case 'mirror':
-                newLinkedValue = linkedValue;
-                break;
-            case 'sum':
-                newLinkedValue = myValue + linkedValue;
-                break;
-            case 'diff':
-                newLinkedValue = myValue - linkedValue;
-                break;
-        }
-        
-        model.set('linked_value', newLinkedValue);
-        model.set('status', `Linked to ${linkTo} (${mode})`);
-        model.save_changes();
-    }
-    
-    // Listen for changes to linked widget
-    function setupLinkedListener() {
-        const linkTo = model.get('link_to');
-        if (!linkTo) { console.log(`[${widgetId}] setupLinkedListener: no link_to`); return; }
-
-        const linkedModel = window.__widgetRegistry?.get(linkTo);
-        if (linkedModel) {
-            console.log(`[${widgetId}] setupLinkedListener: FOUND ${linkTo} in registry, attaching listeners`);
-            linkedModel.on('change:value', updateLinkedValue);
-            linkedModel.on('change:linked_value', updateLinkedValue);
-            updateLinkedValue();
-        } else {
-            console.log(`[${widgetId}] setupLinkedListener: ${linkTo} NOT in registry, waiting...`);
-            // Target not registered yet — wait for it
-            const handler = (event) => {
-                if (event.detail.widgetId === linkTo) {
-                    console.log(`[${widgetId}] setupLinkedListener: ${linkTo} just registered! Retrying.`);
-                    window.__widgetEvents.removeEventListener('widget-registered', handler);
-                    setupLinkedListener(); // retry now that it's registered
-                }
-            };
-            window.__widgetEvents.addEventListener('widget-registered', handler);
-        }
-    }
-    
-    // Update displays when values change
-    model.on('change:value', () => {
-        container.querySelector('.value-display').textContent = model.get('value');
-        updateLinkedValue();
-    });
-    
-    model.on('change:linked_value', () => {
-        container.querySelector('.linked-display').textContent = model.get('linked_value');
-    });
-    
-    model.on('change:status', () => {
-        status.textContent = model.get('status');
-    });
-    
-    model.on('change:link_to', () => {
-        setupLinkedListener();
-    });
-    
-    // Initial setup
-    setupLinkedListener();
-    updateLinkedValue();
-    
+    // Append to element
     el.appendChild(container);
 }
 const __mystUserDefault = {  render  };
