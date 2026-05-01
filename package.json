@@ -8,7 +8,6 @@
     "dev": "jupyter lab"
   },
   "devDependencies": {
-    "mystmd": "^1.3.0"
-  },
-  "dependencies": {}
+    "mystmd": "^1.8.3"
+  }
 }

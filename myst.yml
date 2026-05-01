@@ -3,6 +3,8 @@ version: 1
 project:
   title: Anywidget Composable Geospatial Widgets
   description: Interactive geospatial widgets using anywidget for Jupyter and static HTML
+  plugins:
+    - plugins/anywidget-static-export.mjs
   authors:
     - name: Anywidget Experiments Team
   keywords:
@@ -12,7 +14,27 @@ project:
     - interactive
     - widgets
   github: https://github.com/yourusername/anywidget-experiments
-  
+  toc:
+    - file: README
+    - file: AGENTS
+    - title: Getting Started
+      children:
+        - file: notebooks/01_getting_started
+        - file: notebooks/02_basic_map_viz
+    - title: Widget Communication
+      children:
+        - file: notebooks/03_widget_communication
+        - file: notebooks/04_complex_interactions
+    - title: Static Export
+      children:
+        - file: notebooks/05_static_export_demo.md
+        - file: notebooks/05_static_export_demo_notebook.ipynb
+    - title: Advanced Examples
+      children:
+        - file: examples/temporal_analysis
+        - file: examples/spatial_filtering
+        - file: examples/linked_views
+
 site:
   template: book-theme
   title: Anywidget Experiments
@@ -31,28 +53,3 @@ site:
   
   domains: []
 
-# Build settings
-build:
-  execute: true  # Execute notebooks during build
-  strict: false  # Don't fail on warnings initially
-
-# Table of contents
-toc:
-  - file: README
-  - file: AGENTS
-  - title: Getting Started
-    children:
-      - file: notebooks/01_getting_started
-      - file: notebooks/02_basic_map_viz
-  - title: Widget Communication
-    children:
-      - file: notebooks/03_widget_communication
-      - file: notebooks/04_complex_interactions
-  - title: Static Export
-    children:
-      - file: notebooks/05_static_export_demo.md
-  - title: Advanced Examples
-    children:
-      - file: examples/temporal_analysis
-      - file: examples/spatial_filtering  
-      - file: examples/linked_views
