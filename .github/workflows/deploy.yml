@@ -1,0 +1,73 @@
+name: Deploy MyST site to Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow only one concurrent deployment, but don't cancel in-progress runs.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      # `prebuild` runs `jupyter nbconvert --execute --inplace` on the lonboard
+      # notebooks. This captures binary Parquet buffers into metadata.widgets via
+      # nbclient (see docs/upstream-mystmd-comm-capture.md for why).
+      - name: Pre-execute lonboard notebooks
+        run: npm run prebuild
+
+      # BASE_URL prefix is required for GitHub Pages project sites because they
+      # serve from /<repo-name>/ rather than the domain root.
+      - name: Build MyST site
+        run: npm run build
+        env:
+          BASE_URL: /anywidget-experiments
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
