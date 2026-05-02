@@ -18,3 +18,17 @@ __pycache__/
 .DS_Store
 .vscode/
 .idea/
+
+# Names: SSA dataset is fetched at setup, not committed
+data/names/yob*.txt
+data/names/names.zip
+data/names/NationalReadMe.pdf
+
+# Helene: most inputs are fetched live at prebuild (mixed sourcing).
+# We commit fetch.py and the small hand-authored flood polygon so
+# the fetch is reproducible without the heavy artifacts.
+data/helene/hurdat2.txt
+data/helene/osm_buildings.json
+data/helene/osm_hospitals.json
+data/helene/modis_before.png
+data/helene/modis_after.png

@@ -20,6 +20,8 @@ project:
     - file: notebooks/02_linked_counters.ipynb
     - file: notebooks/03_lonboard_static.ipynb
     - file: notebooks/04_lonboard_interop.ipynb
+    - file: notebooks/05_names.ipynb
+    - file: notebooks/06_helene.ipynb
 
 site:
   template: book-theme
