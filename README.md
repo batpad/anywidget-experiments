@@ -1,12 +1,12 @@
----
-title: Anywidget Experiments
----
+**Warning**: Most of the text and code in this repository has been created with heavy LLM-use. If you want to read an introduction written by a human (me), please start [here](https://batpad.github.io/anywidget-experiments/what-is-this).
 
 # Anywidget Experiments
 
 Custom [anywidget](https://anywidget.dev/) widgets that interoperate, render statically without a kernel, and play nicely with [lonboard](https://developmentseed.org/lonboard/).
 
 **Live demo:** [https://batpad.github.io/anywidget-experiments/](https://batpad.github.io/anywidget-experiments/)
+
+**Background:** [What is this and why](what-is-this.md) — the motivation, what's weird about it, and what it isn't.
 
 The pages on the live site are static HTML — no kernel running, no server, just a `mystmd` build. Click the buttons, scrub the counters, watch lonboard's points resize. All of it is JS-only at runtime.
 

@@ -16,6 +16,8 @@ project:
     - plugins/anywidget-static-export.mjs
   toc:
     - file: README.md
+    - file: what-is-this.md
+    - file: docs/anywidget-directive-test.md
     - file: notebooks/01_anywidget_counter.ipynb
     - file: notebooks/02_linked_counters.ipynb
     - file: notebooks/03_lonboard_static.ipynb
