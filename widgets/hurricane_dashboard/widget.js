@@ -1,4 +1,4 @@
-// HurricaneDashboard — controls a lonboard map by toggling layer visibility
+// HurricaneDashboard controls a lonboard map by toggling layer visibility
 // based on a flood-depth threshold slider through the AFM-style host.waitForModel API.
 
 function resolveModel(host, id, timeout = 5000) {

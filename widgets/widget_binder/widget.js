@@ -1,7 +1,7 @@
-// WidgetBinder: subscribe to a source widget's trait change and write to a
+// WidgetBinder: subscribe to a source widget trait change and write to a
 // target widget's trait through the AFM-style host.waitForModel API.
 //
-// In a JupyterLab kernel context this widget does nothing useful — Python
+// In a JupyterLab kernel context this widget does nothing useful. Python
 // observers are the right tool there. This is for static export, where there's
 // no kernel and we need a JS-only binding.
 

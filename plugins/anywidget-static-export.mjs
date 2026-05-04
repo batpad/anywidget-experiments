@@ -607,8 +607,8 @@ function buildInitialModel(rootId, widgetState) {
   return model;
 }
 
-// Concern 1: generated static assets. These are sidecars that make the opaque
-// notebook output easier to inspect and keep wrapper/source/state/CSS separate.
+// Generate sidecar assets so wrapper/source/state/CSS stay separate and
+// notebook output is easier to inspect.
 function ensureStaticAssetDir(sourcePath) {
   const sourceDir = path.dirname(sourcePath);
   const assetDir = path.join(sourceDir, ASSET_DIR_NAME);
@@ -675,13 +675,13 @@ function writeManifest(assetDir, sourcePath, manifestEntries) {
   );
 }
 
-// Concern 2: MyST AST rewriting. This stays separate from asset emission so it
-// can become an upstream MyST/JupyterBook transform later.
+// Rewrite MyST AST output separately from asset emission so this can become an
+// upstream MyST/JupyterBook transform later.
 function rewriteOutputNodeToAnywidget(node, rootId, model, assets) {
   delete node.jupyter_data;
   node.type = 'anywidget';
   node.esm = assets.module;
-  // We intentionally do NOT set node.css here — the renderer would inject it via
+  // We intentionally do NOT set node.css here. The renderer would inject it via
   // a `<link>` inside the user's render-target div, which React's createRoot wipes
   // for widgets like lonboard. Instead we inline the CSS text on the model and the
   // runtime shim attaches a <style> element directly to the shadow root.
