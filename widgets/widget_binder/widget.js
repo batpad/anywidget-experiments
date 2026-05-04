@@ -1,39 +1,15 @@
 // WidgetBinder: subscribe to a source widget's trait change and write to a
-// target widget's trait through the AFM host.getModel API.
+// target widget's trait through the AFM-style host.waitForModel API.
 //
 // In a JupyterLab kernel context this widget does nothing useful — Python
 // observers are the right tool there. This is for static export, where there's
 // no kernel and we need a JS-only binding.
 
-function pollFor(predicate, timeout) {
-    const start = Date.now();
-    return new Promise((resolve, reject) => {
-        const tick = () => {
-            Promise.resolve()
-                .then(predicate)
-                .then((v) => {
-                    if (v !== undefined && v !== null) return resolve(v);
-                    if (Date.now() - start > timeout) {
-                        return reject(new Error("[binder] timeout"));
-                    }
-                    setTimeout(tick, 50);
-                })
-                .catch(() => {
-                    if (Date.now() - start > timeout) {
-                        return reject(new Error("[binder] timeout"));
-                    }
-                    setTimeout(tick, 50);
-                });
-        };
-        tick();
-    });
-}
-
 function resolveModel(host, id, timeout = 5000) {
-    if (!host || typeof host.getModel !== "function") {
-        return Promise.reject(new Error("[binder] host.getModel is unavailable"));
+    if (!host || typeof host.waitForModel !== "function") {
+        return Promise.reject(new Error("[binder] host.waitForModel is unavailable"));
     }
-    return pollFor(() => host.getModel(id), timeout);
+    return host.waitForModel(id, { timeout });
 }
 
 // Set a value at a dotted path on a target model. For leaf paths we simply

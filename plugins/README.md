@@ -282,9 +282,14 @@ Notes from when we did this:
 
 ## Known limitations
 
-- Cross-widget interop now goes through the per-page host (`host.getModel` /
-  `host.getWidget`). The scoped registry still lives behind the host runtime, but
-  widgets should not read or write global registries directly.
+- Cross-widget interop now goes through the per-page host (`host.getModel`,
+  `host.waitForModel`, `host.getWidget`, and scoped `host.on/off/emit`). The
+  scoped registry still lives behind the host runtime, but widgets should not
+  read or write global registries directly.
+- The current event boundary is intentionally small: the host emits lifecycle
+  events such as `model:registered`, while widget-to-widget data flow still uses
+  model change events (`model.on("change:x", ...)`). This is enough for the
+  examples, but not a full AFM/event design.
 - No widgets with complex serializers (custom `to_json` on the Python side that
   we'd need to mirror in JS) have been tested.
 - The CSS injection is unconditional — every anywidget that ships a `_css`

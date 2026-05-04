@@ -182,7 +182,7 @@ class __MystEmitter {
   on(event, fn) {
     if (!fn) return;
     if (this._target) {
-      const wrapped = function () { fn(); };
+      const wrapped = function (ev) { fn(ev && 'detail' in ev ? ev.detail : undefined); };
       this._listeners.set(fn, wrapped);
       this._target.addEventListener(event, wrapped);
       return;
@@ -202,15 +202,19 @@ class __MystEmitter {
     const i = arr.indexOf(fn);
     if (i >= 0) arr.splice(i, 1);
   }
-  emit(event) {
+  emit(event, detail) {
     if (this._target) {
-      this._target.dispatchEvent(new Event(event));
+      var ev = typeof CustomEvent === 'function'
+        ? new CustomEvent(event, { detail: detail })
+        : new Event(event);
+      if (!('detail' in ev)) ev.detail = detail;
+      this._target.dispatchEvent(ev);
       return;
     }
     const arr = this._listeners.get(event);
     if (!arr) return;
     for (const fn of arr.slice()) {
-      try { fn(); } catch (e) { console.error('[myst-host] listener error', e); }
+      try { fn(detail); } catch (e) { console.error('[myst-host] listener error', e); }
     }
   }
 }
@@ -271,13 +275,21 @@ function __mystCreateRegistry() {
     const _byKey = new Map();
     const _all = [];
     const _bindings = new Map();
+    const _events = new __MystEmitter();
     return {
       register: function (model, keys) {
+        var registeredKeys = [];
         for (var i = 0; i < keys.length; i++) {
           var k = keys[i];
-          if (k && !_byKey.has(k)) _byKey.set(k, model);
+          if (k && !_byKey.has(k)) {
+            _byKey.set(k, model);
+            registeredKeys.push(k);
+          }
         }
         if (_all.indexOf(model) < 0) _all.push(model);
+        for (var j = 0; j < registeredKeys.length; j++) {
+          _events.emit('model:registered', { key: registeredKeys[j], model: model });
+        }
       },
       get: function (key) { return _byKey.get(key); },
       findFirst: function (pred) { return _all.find(pred); },
@@ -285,9 +297,16 @@ function __mystCreateRegistry() {
       all: function () { return _all.slice(); },
       registerBinding: function (model, binding) {
         this.register(model, binding.keys || []);
+        var registeredKeys = [];
         for (var i = 0; i < (binding.keys || []).length; i++) {
           var k = binding.keys[i];
-          if (k && !_bindings.has(k)) _bindings.set(k, binding);
+          if (k && !_bindings.has(k)) {
+            _bindings.set(k, binding);
+            registeredKeys.push(k);
+          }
+        }
+        for (var j = 0; j < registeredKeys.length; j++) {
+          _events.emit('widget:registered', { key: registeredKeys[j], binding: binding });
         }
       },
       getBinding: function (key) { return _bindings.get(__mystNormalizeRef(key)); },
@@ -296,6 +315,35 @@ function __mystCreateRegistry() {
         var model = _byKey.get(key);
         if (model) return Promise.resolve(model);
         return Promise.reject(new Error('[myst-host] unknown model: ' + String(ref)));
+      },
+      waitForModel: function (ref, options) {
+        var key = __mystNormalizeRef(ref);
+        var model = _byKey.get(key);
+        if (model) return Promise.resolve(model);
+        var timeout = options && typeof options.timeout === 'number' ? options.timeout : 5000;
+        return new Promise(function (resolve, reject) {
+          var done = false;
+          var timer = null;
+          var cleanup = function () {
+            _events.off('model:registered', onRegistered);
+            if (timer) clearTimeout(timer);
+          };
+          var finish = function (fn, value) {
+            if (done) return;
+            done = true;
+            cleanup();
+            fn(value);
+          };
+          var onRegistered = function (detail) {
+            if (detail && detail.key === key) finish(resolve, detail.model);
+          };
+          _events.on('model:registered', onRegistered);
+          if (timeout >= 0) {
+            timer = setTimeout(function () {
+              finish(reject, new Error('[myst-host] timeout waiting for model: ' + String(ref)));
+            }, timeout);
+          }
+        });
       },
       getWidget: function (ref) {
         var key = __mystNormalizeRef(ref);
@@ -306,6 +354,9 @@ function __mystCreateRegistry() {
           render: binding.render,
         });
       },
+      on: function (event, fn) { return _events.on(event, fn); },
+      off: function (event, fn) { return _events.off(event, fn); },
+      emit: function (event, detail) { return _events.emit(event, detail); },
     };
 }
 
@@ -336,7 +387,11 @@ function __mystHost() {
   var reg = __mystRegistry();
   return {
     getModel: function (ref) { return reg.getModel(ref); },
+    waitForModel: function (ref, options) { return reg.waitForModel(ref, options); },
     getWidget: function (ref) { return reg.getWidget(ref); },
+    on: function (event, fn) { return reg.on(event, fn); },
+    off: function (event, fn) { return reg.off(event, fn); },
+    emit: function (event, detail) { return reg.emit(event, detail); },
   };
 }
 
@@ -530,6 +585,90 @@ function buildInitialModel(rootId, widgetState) {
   return model;
 }
 
+// Concern 1: generated static assets. These are sidecars that make the opaque
+// notebook output easier to inspect and keep wrapper/source/state/CSS separate.
+function ensureStaticAssetDir(sourcePath) {
+  const sourceDir = path.dirname(sourcePath);
+  const assetDir = path.join(sourceDir, ASSET_DIR_NAME);
+  if (!fs.existsSync(assetDir)) fs.mkdirSync(assetDir, { recursive: true });
+  writeFileIfChanged(path.join(assetDir, RUNTIME_MODULE_NAME), RUNTIME_SOURCE);
+  return assetDir;
+}
+
+function emitStaticWidgetAssets(assetDir, esm, css, model) {
+  const sourceEsmName = `${shortHash(esm)}.source.mjs`;
+  writeFileIfChanged(path.join(assetDir, sourceEsmName), esm);
+
+  const wrapperEsm = buildWrapperModule(esm);
+  const wrapperEsmName = `${shortHash(wrapperEsm)}.wrapper.mjs`;
+  writeFileIfChanged(path.join(assetDir, wrapperEsmName), wrapperEsm);
+
+  let cssRel;
+  if (css) {
+    const cssName = `${shortHash(css)}.css`;
+    writeFileIfChanged(path.join(assetDir, cssName), css);
+    cssRel = `${ASSET_DIR_NAME}/${cssName}`;
+  }
+
+  const stateName = `${shortHash(JSON.stringify(model))}.state.json`;
+  writeFileIfChanged(
+    path.join(assetDir, stateName),
+    `${JSON.stringify(model, null, 2)}\n`,
+  );
+
+  return {
+    module: `${ASSET_DIR_NAME}/${wrapperEsmName}`,
+    sourceModule: `${ASSET_DIR_NAME}/${sourceEsmName}`,
+    runtime: `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`,
+    state: `${ASSET_DIR_NAME}/${stateName}`,
+    css: cssRel,
+  };
+}
+
+function writeManifest(assetDir, sourcePath, manifestEntries) {
+  const manifestPath = path.join(assetDir, MANIFEST_NAME);
+  let manifest = { runtime: `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`, pages: {} };
+  if (fs.existsSync(manifestPath)) {
+    try {
+      const existing = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (existing && typeof existing === 'object') {
+        manifest = {
+          runtime: existing.runtime ?? manifest.runtime,
+          pages: existing.pages ?? {},
+        };
+      }
+    } catch {
+      // Replace malformed manifests; generated artifacts should be deterministic.
+    }
+  }
+  manifest.runtime = `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`;
+  manifest.pages[path.basename(sourcePath)] = {
+    source: path.basename(sourcePath),
+    widgets: manifestEntries,
+  };
+  manifest.widgets = Object.values(manifest.pages).flatMap((page) => page.widgets ?? []);
+  writeFileIfChanged(
+    manifestPath,
+    `${JSON.stringify(manifest, null, 2)}\n`,
+  );
+}
+
+// Concern 2: MyST AST rewriting. This stays separate from asset emission so it
+// can become an upstream MyST/JupyterBook transform later.
+function rewriteOutputNodeToAnywidget(node, rootId, model, assets) {
+  delete node.jupyter_data;
+  node.type = 'anywidget';
+  node.esm = assets.module;
+  // We intentionally do NOT set node.css here — the renderer would inject it via
+  // a `<link>` inside the user's render-target div, which React's createRoot wipes
+  // for widgets like lonboard. Instead we inline the CSS text on the model and the
+  // runtime shim attaches a <style> element directly to the shadow root.
+  node.model = model;
+  node.id = rootId;
+  node.children = [];
+  if (!node.key) node.key = nanoidLike();
+}
+
 const transformPlugin = () => async (tree, file) => {
   const sourcePath = file?.path ?? file?.history?.[0];
   if (!sourcePath || !sourcePath.endsWith('.ipynb')) return;
@@ -545,10 +684,7 @@ const transformPlugin = () => async (tree, file) => {
   const widgetState = notebook?.metadata?.widgets?.[WIDGET_STATE_MIME]?.state;
   if (!widgetState) return;
 
-  const sourceDir = path.dirname(sourcePath);
-  const assetDir = path.join(sourceDir, ASSET_DIR_NAME);
-  if (!fs.existsSync(assetDir)) fs.mkdirSync(assetDir, { recursive: true });
-  writeFileIfChanged(path.join(assetDir, RUNTIME_MODULE_NAME), RUNTIME_SOURCE);
+  const assetDir = ensureStaticAssetDir(sourcePath);
 
   let rewriteCount = 0;
   const manifestEntries = [];
@@ -572,82 +708,26 @@ const transformPlugin = () => async (tree, file) => {
     const css = state._css;
     if (!esm) continue;
 
-    const sourceEsmName = `${shortHash(esm)}.source.mjs`;
-    writeFileIfChanged(path.join(assetDir, sourceEsmName), esm);
-
-    const wrapperEsm = buildWrapperModule(esm);
-    const wrapperEsmName = `${shortHash(wrapperEsm)}.wrapper.mjs`;
-    writeFileIfChanged(path.join(assetDir, wrapperEsmName), wrapperEsm);
-
-    let cssRel;
+    const model = buildInitialModel(rootId, widgetState);
     if (css) {
-      const cssName = `${shortHash(css)}.css`;
-      const cssFile = path.join(assetDir, cssName);
-      writeFileIfChanged(cssFile, css);
-      cssRel = `${ASSET_DIR_NAME}/${cssName}`;
+      model._myst_css_text = css;
+      model._myst_css_key = shortHash(css);
     }
 
-    delete node.jupyter_data;
-    node.type = 'anywidget';
-    node.esm = `${ASSET_DIR_NAME}/${wrapperEsmName}`;
-    // We intentionally do NOT set node.css here — the renderer would inject it via
-    // a `<link>` inside the user's render-target div, which React's createRoot wipes
-    // for widgets like lonboard. Instead we inline the CSS text on the model and the
-    // runtime shim attaches a <style> element directly to the shadow root.
-    node.model = buildInitialModel(rootId, widgetState);
-    if (css) {
-      node.model._myst_css_text = css;
-      node.model._myst_css_key = shortHash(css);
-    }
-    const stateName = `${shortHash(JSON.stringify(node.model))}.state.json`;
-    writeFileIfChanged(
-      path.join(assetDir, stateName),
-      `${JSON.stringify(node.model, null, 2)}\n`,
-    );
-
-    node.id = rootId;
-    node.children = [];
-    if (!node.key) node.key = nanoidLike();
+    const assets = emitStaticWidgetAssets(assetDir, esm, css, model);
+    rewriteOutputNodeToAnywidget(node, rootId, model, assets);
 
     manifestEntries.push({
       id: rootId,
-      module: `${ASSET_DIR_NAME}/${wrapperEsmName}`,
-      sourceModule: `${ASSET_DIR_NAME}/${sourceEsmName}`,
-      runtime: `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`,
-      state: `${ASSET_DIR_NAME}/${stateName}`,
-      css: cssRel,
-      buffers: node.model._myst_buffers?.length ?? 0,
-      submodels: Object.keys(node.model._myst_submodels ?? {}).length,
+      ...assets,
+      buffers: model._myst_buffers?.length ?? 0,
+      submodels: Object.keys(model._myst_submodels ?? {}).length,
     });
     rewriteCount += 1;
   }
 
   if (rewriteCount > 0) {
-    const manifestPath = path.join(assetDir, MANIFEST_NAME);
-    let manifest = { runtime: `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`, pages: {} };
-    if (fs.existsSync(manifestPath)) {
-      try {
-        const existing = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-        if (existing && typeof existing === 'object') {
-          manifest = {
-            runtime: existing.runtime ?? manifest.runtime,
-            pages: existing.pages ?? {},
-          };
-        }
-      } catch {
-        // Replace malformed manifests; generated artifacts should be deterministic.
-      }
-    }
-    manifest.runtime = `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`;
-    manifest.pages[path.basename(sourcePath)] = {
-      source: path.basename(sourcePath),
-      widgets: manifestEntries,
-    };
-    manifest.widgets = Object.values(manifest.pages).flatMap((page) => page.widgets ?? []);
-    writeFileIfChanged(
-      manifestPath,
-      `${JSON.stringify(manifest, null, 2)}\n`,
-    );
+    writeManifest(assetDir, sourcePath, manifestEntries);
     console.log(`[anywidget-static-export] exported ${rewriteCount} widget(s) in ${path.basename(sourcePath)}`);
   }
 };

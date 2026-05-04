@@ -1,30 +1,10 @@
 // Linked counter widget that demonstrates inter-widget communication
 
-function pollFor(predicate, timeout = 5000) {
-    const start = Date.now();
-    return new Promise((resolve, reject) => {
-        const tick = () => {
-            Promise.resolve()
-                .then(predicate)
-                .then((v) => {
-                    if (v !== undefined && v !== null) return resolve(v);
-                    if (Date.now() - start > timeout) return reject(new Error("timeout"));
-                    setTimeout(tick, 50);
-                })
-                .catch(() => {
-                    if (Date.now() - start > timeout) return reject(new Error("timeout"));
-                    setTimeout(tick, 50);
-                });
-        };
-        tick();
-    });
-}
-
 function resolveLinkedModel(host, id) {
-    if (!host || typeof host.getModel !== "function") {
-        return Promise.reject(new Error("host.getModel is unavailable"));
+    if (!host || typeof host.waitForModel !== "function") {
+        return Promise.reject(new Error("host.waitForModel is unavailable"));
     }
-    return pollFor(() => host.getModel(id), 5000);
+    return host.waitForModel(id, { timeout: 5000 });
 }
 
 function render({ model, el, host }) {

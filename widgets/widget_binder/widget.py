@@ -5,7 +5,7 @@ cross-widget interop in MyST static export, e.g. "counter value drives lonboard
 map zoom" with no kernel.
 
 The binding is identified by:
-  source_widget_id     — resolved through host.getModel (matches widget_id,
+  source_widget_id     — resolved through host.waitForModel (matches widget_id,
                          _anywidget_id, anywidget:<model_id>, or model_id)
   source_field         — trait name to subscribe to on the source
   target_widget_id     — same host lookup as source
