@@ -97,6 +97,8 @@ function render({ model, el, host }) {
         try { model.save_changes(); } catch(_) {}
         updateLinkedValue();
     });
+
+    let linkedModelRef = null;
     
     // Function to update linked value based on mode
     function updateLinkedValue() {
@@ -137,6 +139,15 @@ function render({ model, el, host }) {
         if (!linkTo) return;
 
         resolveLinkedModel(host, linkTo).then((linkedModel) => {
+            if (linkedModelRef === linkedModel) {
+                updateLinkedValue();
+                return;
+            }
+            if (linkedModelRef && typeof linkedModelRef.off === 'function') {
+                linkedModelRef.off('change:value', updateLinkedValue);
+                linkedModelRef.off('change:linked_value', updateLinkedValue);
+            }
+            linkedModelRef = linkedModel;
             linkedModel.on('change:value', updateLinkedValue);
             linkedModel.on('change:linked_value', updateLinkedValue);
             updateLinkedValue();

@@ -174,46 +174,49 @@ function __mystEventTarget() {
   return null;
 }
 
+function __mystEventDetail(ev) {
+  return ev && 'detail' in ev ? ev.detail : undefined;
+}
+
 class __MystEmitter {
   constructor() {
     this._target = __mystEventTarget();
     this._listeners = new Map();
   }
+  _listenersFor(event) {
+    if (!this._listeners.has(event)) this._listeners.set(event, new Map());
+    return this._listeners.get(event);
+  }
   on(event, fn) {
     if (!fn) return;
     if (this._target) {
-      const wrapped = function (ev) { fn(ev && 'detail' in ev ? ev.detail : undefined); };
-      this._listeners.set(fn, wrapped);
+      const listeners = this._listenersFor(event);
+      const wrapped = function (ev) { fn(__mystEventDetail(ev)); };
+      listeners.set(fn, wrapped);
       this._target.addEventListener(event, wrapped);
       return;
     }
-    if (!this._listeners.has(event)) this._listeners.set(event, []);
-    this._listeners.get(event).push(fn);
+    this._listenersFor(event).set(fn, fn);
   }
   off(event, fn) {
-    if (this._target) {
-      const wrapped = this._listeners.get(fn);
-      if (wrapped) this._target.removeEventListener(event, wrapped);
-      this._listeners.delete(fn);
-      return;
-    }
-    const arr = this._listeners.get(event);
-    if (!arr) return;
-    const i = arr.indexOf(fn);
-    if (i >= 0) arr.splice(i, 1);
+    const listeners = this._listeners.get(event);
+    if (!listeners) return;
+    const wrapped = listeners.get(fn);
+    if (this._target && wrapped) this._target.removeEventListener(event, wrapped);
+    listeners.delete(fn);
+    if (listeners.size === 0) this._listeners.delete(event);
   }
   emit(event, detail) {
     if (this._target) {
-      var ev = typeof CustomEvent === 'function'
+      const ev = typeof CustomEvent === 'function'
         ? new CustomEvent(event, { detail: detail })
-        : new Event(event);
-      if (!('detail' in ev)) ev.detail = detail;
+        : Object.assign(new Event(event), { detail: detail });
       this._target.dispatchEvent(ev);
       return;
     }
-    const arr = this._listeners.get(event);
-    if (!arr) return;
-    for (const fn of arr.slice()) {
+    const listeners = this._listeners.get(event);
+    if (!listeners) return;
+    for (const fn of Array.from(listeners.values())) {
       try { fn(detail); } catch (e) { console.error('[myst-host] listener error', e); }
     }
   }
@@ -271,93 +274,112 @@ function __mystEnsureShadowCss(el, cssText, cacheKey) {
 // every transitively-referenced sub-model. Keyed by widget_id (user-set), by
 // _anywidget_id (Python class path, e.g. "lonboard._map.Map"), and by model_id
 // (UUID from the kernel). Lookups can use any of these keys.
+const __MYST_MODEL_REGISTERED_EVENT = 'model:registered';
+const __MYST_WIDGET_REGISTERED_EVENT = 'widget:registered';
+
+function __mystUniqueKeys(keys) {
+  const out = [];
+  const seen = new Set();
+  for (let i = 0; i < (keys || []).length; i++) {
+    const key = __mystNormalizeRef(keys[i]);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+  }
+  return out;
+}
+
 function __mystCreateRegistry() {
-    const _byKey = new Map();
-    const _all = [];
-    const _bindings = new Map();
-    const _events = new __MystEmitter();
-    return {
-      register: function (model, keys) {
-        var registeredKeys = [];
-        for (var i = 0; i < keys.length; i++) {
-          var k = keys[i];
-          if (k && !_byKey.has(k)) {
-            _byKey.set(k, model);
-            registeredKeys.push(k);
-          }
-        }
-        if (_all.indexOf(model) < 0) _all.push(model);
-        for (var j = 0; j < registeredKeys.length; j++) {
-          _events.emit('model:registered', { key: registeredKeys[j], model: model });
-        }
-      },
-      get: function (key) { return _byKey.get(key); },
-      findFirst: function (pred) { return _all.find(pred); },
-      filter: function (pred) { return _all.filter(pred); },
-      all: function () { return _all.slice(); },
-      registerBinding: function (model, binding) {
-        this.register(model, binding.keys || []);
-        var registeredKeys = [];
-        for (var i = 0; i < (binding.keys || []).length; i++) {
-          var k = binding.keys[i];
-          if (k && !_bindings.has(k)) {
-            _bindings.set(k, binding);
-            registeredKeys.push(k);
-          }
-        }
-        for (var j = 0; j < registeredKeys.length; j++) {
-          _events.emit('widget:registered', { key: registeredKeys[j], binding: binding });
-        }
-      },
-      getBinding: function (key) { return _bindings.get(__mystNormalizeRef(key)); },
-      getModel: function (ref) {
-        var key = __mystNormalizeRef(ref);
-        var model = _byKey.get(key);
-        if (model) return Promise.resolve(model);
-        return Promise.reject(new Error('[myst-host] unknown model: ' + String(ref)));
-      },
-      waitForModel: function (ref, options) {
-        var key = __mystNormalizeRef(ref);
-        var model = _byKey.get(key);
-        if (model) return Promise.resolve(model);
-        var timeout = options && typeof options.timeout === 'number' ? options.timeout : 5000;
-        return new Promise(function (resolve, reject) {
-          var done = false;
-          var timer = null;
-          var cleanup = function () {
-            _events.off('model:registered', onRegistered);
-            if (timer) clearTimeout(timer);
-          };
-          var finish = function (fn, value) {
-            if (done) return;
-            done = true;
-            cleanup();
-            fn(value);
-          };
-          var onRegistered = function (detail) {
-            if (detail && detail.key === key) finish(resolve, detail.model);
-          };
-          _events.on('model:registered', onRegistered);
-          if (timeout >= 0) {
-            timer = setTimeout(function () {
-              finish(reject, new Error('[myst-host] timeout waiting for model: ' + String(ref)));
-            }, timeout);
-          }
-        });
-      },
-      getWidget: function (ref) {
-        var key = __mystNormalizeRef(ref);
-        var binding = _bindings.get(key);
-        if (!binding) return Promise.reject(new Error('[myst-host] unknown widget: ' + String(ref)));
-        return Promise.resolve({
-          exports: binding.exports,
-          render: binding.render,
-        });
-      },
-      on: function (event, fn) { return _events.on(event, fn); },
-      off: function (event, fn) { return _events.off(event, fn); },
-      emit: function (event, detail) { return _events.emit(event, detail); },
-    };
+  const _byKey = new Map();
+  const _all = [];
+  const _bindings = new Map();
+  const _events = new __MystEmitter();
+
+  function registerModel(model, keys) {
+    const registeredKeys = [];
+    for (const key of __mystUniqueKeys(keys)) {
+      if (_byKey.has(key)) continue;
+      _byKey.set(key, model);
+      registeredKeys.push(key);
+    }
+    if (_all.indexOf(model) < 0) _all.push(model);
+    for (const key of registeredKeys) {
+      _events.emit(__MYST_MODEL_REGISTERED_EVENT, { key: key, model: model });
+    }
+  }
+
+  function registerBinding(model, binding) {
+    const keys = __mystUniqueKeys(binding && binding.keys);
+    registerModel(model, keys);
+    const registeredKeys = [];
+    for (const key of keys) {
+      if (_bindings.has(key)) continue;
+      _bindings.set(key, binding);
+      registeredKeys.push(key);
+    }
+    for (const key of registeredKeys) {
+      _events.emit(__MYST_WIDGET_REGISTERED_EVENT, { key: key, binding: binding });
+    }
+  }
+
+  function waitForModel(ref, options) {
+    const key = __mystNormalizeRef(ref);
+    const model = _byKey.get(key);
+    if (model) return Promise.resolve(model);
+    const timeout = options && typeof options.timeout === 'number' ? options.timeout : 5000;
+    return new Promise(function (resolve, reject) {
+      let done = false;
+      let timer = null;
+      const cleanup = function () {
+        _events.off(__MYST_MODEL_REGISTERED_EVENT, onRegistered);
+        if (timer) clearTimeout(timer);
+      };
+      const finish = function (fn, value) {
+        if (done) return;
+        done = true;
+        cleanup();
+        fn(value);
+      };
+      const onRegistered = function (detail) {
+        if (detail && detail.key === key) finish(resolve, detail.model);
+      };
+      _events.on(__MYST_MODEL_REGISTERED_EVENT, onRegistered);
+      if (timeout >= 0) {
+        timer = setTimeout(function () {
+          finish(reject, new Error('[myst-host] timeout waiting for model: ' + String(ref)));
+        }, timeout);
+      }
+    });
+  }
+
+  return {
+    register: registerModel,
+    get: function (key) { return _byKey.get(__mystNormalizeRef(key)); },
+    findFirst: function (pred) { return _all.find(pred); },
+    filter: function (pred) { return _all.filter(pred); },
+    all: function () { return _all.slice(); },
+    registerBinding: registerBinding,
+    getBinding: function (key) { return _bindings.get(__mystNormalizeRef(key)); },
+    getModel: function (ref) {
+      const key = __mystNormalizeRef(ref);
+      const model = _byKey.get(key);
+      if (model) return Promise.resolve(model);
+      return Promise.reject(new Error('[myst-host] unknown model: ' + String(ref)));
+    },
+    waitForModel: waitForModel,
+    getWidget: function (ref) {
+      const key = __mystNormalizeRef(ref);
+      const binding = _bindings.get(key);
+      if (!binding) return Promise.reject(new Error('[myst-host] unknown widget: ' + String(ref)));
+      return Promise.resolve({
+        exports: binding.exports,
+        render: binding.render,
+      });
+    },
+    on: function (event, fn) { return _events.on(event, fn); },
+    off: function (event, fn) { return _events.off(event, fn); },
+    emit: function (event, detail) { return _events.emit(event, detail); },
+  };
 }
 
 function __mystRegistry() {
