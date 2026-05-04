@@ -1,20 +1,31 @@
 // HurricaneDashboard — controls a lonboard map by toggling layer visibility
-// based on a flood-depth threshold slider.
-
-window.__widgetRegistry = window.__widgetRegistry || new Map();
-window.__widgetEvents = window.__widgetEvents || new EventTarget();
+// based on a flood-depth threshold slider through the AFM host.getModel API.
 
 function pollFor(predicate, timeout = 5000) {
     const start = Date.now();
     return new Promise((resolve, reject) => {
         const tick = () => {
-            const v = predicate();
-            if (v != null) return resolve(v);
-            if (Date.now() - start > timeout) return reject(new Error("timeout"));
-            setTimeout(tick, 50);
+            Promise.resolve()
+                .then(predicate)
+                .then((v) => {
+                    if (v != null) return resolve(v);
+                    if (Date.now() - start > timeout) return reject(new Error("timeout"));
+                    setTimeout(tick, 50);
+                })
+                .catch(() => {
+                    if (Date.now() - start > timeout) return reject(new Error("timeout"));
+                    setTimeout(tick, 50);
+                });
         };
         tick();
     });
+}
+
+function resolveModel(host, id, timeout = 5000) {
+    if (!host || typeof host.getModel !== "function") {
+        return Promise.reject(new Error("host.getModel is unavailable"));
+    }
+    return pollFor(() => host.getModel(id), timeout);
 }
 
 function tweenNumber(el, from, to, durationMs = 600) {
@@ -32,10 +43,7 @@ function tweenNumber(el, from, to, durationMs = 600) {
     requestAnimationFrame(step);
 }
 
-function render({ model, el }) {
-    const widgetId = "hurricane_dashboard_" + Math.random().toString(36).slice(2, 8);
-    window.__widgetRegistry.set(widgetId, model);
-
+function render({ model, el, host }) {
     const storm = model.get("storm_name") || "Hurricane";
     const subtitle = model.get("storm_subtitle") || "";
     const layerUuids = model.get("layer_uuids") || {};
@@ -110,22 +118,16 @@ function render({ model, el }) {
     };
 
     // ---- layer registry helpers --------------------------------------------
-    const reg = window.__myst_widgets;
-    if (!reg) {
-        status.textContent = "❌ window.__myst_widgets not initialized";
-        return;
-    }
-
     function setVisible(layerKey, visible) {
         const uuid = layerUuids[layerKey];
         if (!uuid) return;
-        const m = reg.get(uuid);
-        if (!m) return;
-        try {
-            m.set("visible", !!visible);
-        } catch (e) {
-            console.warn("[hd] set visible failed for", layerKey, e);
-        }
+        resolveModel(host, uuid).then((m) => {
+            try {
+                m.set("visible", !!visible);
+            } catch (e) {
+                console.warn("[hd] set visible failed for", layerKey, e);
+            }
+        }).catch(() => {});
     }
 
     // ---- layer toggle checkboxes -------------------------------------------
@@ -217,7 +219,7 @@ function render({ model, el }) {
     // ---- initial wiring ----------------------------------------------------
     // Wait for the first registered lonboard layer, then apply initial state.
     const firstUuid = Object.values(layerUuids)[0];
-    pollFor(() => firstUuid && reg.get(firstUuid), 6000)
+    resolveModel(host, firstUuid, 6000)
         .then(() => {
             // Initial layer visibility from initial_visible
             for (const t of toggleLayers) {

@@ -5,10 +5,10 @@ cross-widget interop in MyST static export, e.g. "counter value drives lonboard
 map zoom" with no kernel.
 
 The binding is identified by:
-  source_widget_id     — looked up in window.__myst_widgets (matches widget_id,
-                         _anywidget_id, or model_id)
+  source_widget_id     — resolved through host.getModel (matches widget_id,
+                         _anywidget_id, anywidget:<model_id>, or model_id)
   source_field         — trait name to subscribe to on the source
-  target_widget_id     — same lookup as source
+  target_widget_id     — same host lookup as source
   target_field         — dotted path on target ("view_state.zoom" merges into
                          the existing view_state object)
   multiplier, offset   — linear transform applied to the source value
