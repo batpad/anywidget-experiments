@@ -69,7 +69,7 @@ drops widget comm messages — see `docs/upstream-mystmd-comm-capture.md`.
 | 4 | `Object.defineProperty` to install `widget_manager` | `MystAnyModel` exposes `widget_manager` as a getter-only prop that throws | Yes, see below                                |
 | 5 | Inline CSS as `<style>` in shadow root, not `<link>` in `el` | React `createRoot()` wipes children; `<link>` injected by renderer dies | Yes, see below                                |
 | 6 | No-op `model.off`, `model.send`, `model.save_changes` | `MystAnyModel` stubs them all to throw "not implemented yet"          | Yes — small upstream PR                            |
-| 7 | Regex-based `export default` rewrite (handles `export { X as default }`) | Bundled ESM (lonboard) doesn't use `export default { … }` literal | Painful — would need real JS parsing               |
+| 7 | Standalone wrapper module around untouched widget ESM | The static host must intercept `initialize`/`render` without rewriting user code | Yes — belongs in the asset pipeline               |
 | 8 | Filter underscore + `IPY_MODEL_*` traits when building `node.model` | Avoid leaking widget-internal state into the renderer-visible model | No                                                |
 | 9 | Pre-execute notebook with nbclient to capture buffers | mystmd's executor drops comm messages                              | Yes — see docs/upstream-mystmd-comm-capture.md     |
 
@@ -207,29 +207,34 @@ so plain assignment shadows them on the instance. Only `widget_manager` needs
 **Upstream fix**: implement these as no-ops, or at least don't throw — let
 widgets that call them work in static contexts. ~5 lines of TypeScript.
 
-### Hack #7 — Regex `export default` rewrite
+### Hack #7 — Wrapper module around untouched widget ESM
 
-**File**: `EXPORT_DEFAULT_OBJECT_RE`, `EXPORT_DEFAULT_IDENT_RE`, `EXPORT_NAMED_DEFAULT_RE`, `rewriteNamedDefaultExport`, `wrapEsmForStatic` in `anywidget-static-export.mjs`.
+**File**: `buildWrapperModule` in `anywidget-static-export.mjs`.
 
-The shim wraps the user's `_esm` so we can intercept `initialize`/`render`. To
-do that without disrupting the rest of the module, we capture the user's
-existing `export default` by string-replacement and reassign it to a const,
-then write our own `export default` at the bottom.
+The static host must intercept `initialize`/`render`, but it should not edit the
+widget author's JavaScript. Earlier versions tried to capture `export default`
+with regexes and then append our own default export. That broke down quickly:
+hand-written widgets and bundled lonboard modules use different export shapes.
 
-Three forms occur in the wild:
-1. `export default { render };`        (hand-written widgets)
-2. `export default RENDER_OBJ;`        (short-hand declaration)
-3. `export { O0r as default };`        (bundled, e.g. lonboard's compiled `_esm`)
+The current version writes the original `_esm` to a `.source.mjs` sidecar and
+generates a separate `.wrapper.mjs`. The wrapper imports the original module,
+normalizes its default export, and then delegates through the static host:
 
-The third form was the cause of an embarrassingly long debugging session. Our
-first version handled only `export default { … }` directly, returned the
-source unchanged for everything else, and our shim never ran for lonboard at
-all (no `[myst-shim]` console logs, an obvious clue we missed for half an
-hour).
+```js
+export default {
+  initialize(args) {
+    return initializeStaticWidget(userModule, args);
+  },
+  render(args) {
+    return renderStaticWidget(userModule, args);
+  },
+};
+```
 
-This is regex-based and will eventually meet a JS module that breaks it.
-Better long-term would be a proper parser (acorn / sucrase) but that's a
-dependency we don't have today.
+In this prototype the wrapper embeds the source in a Blob URL because MyST only
+copies the `node.esm` file it sees in the AST. A cleaner upstream version should
+register both the wrapper and source module as first-class build assets and use
+normal relative ESM imports.
 
 ### Hack #8 — `_`-prefix and `IPY_MODEL_*` filtering in `buildInitialModel`
 
@@ -264,7 +269,7 @@ level.
 A rough debugging order:
 
 1. Build, open the page, look at the console. Note any `MystAnyModel.X not implemented yet` — that tells you which method to no-op in `__mystSetupModel`.
-2. If you see no `[myst-shim]` logs at all, the `wrapEsmForStatic` regex didn't match the user's `_esm`. Add a new pattern.
+2. If the wrapper never runs, inspect the emitted `.wrapper.mjs` and confirm the page JSON points at it.
 3. If the widget renders but is wrong size / styles missing, it's probably a CSS-not-applied-in-shadow-DOM issue (hack #5).
 4. If `widget_manager.get_model(id)` is called with an id you don't have in `_myst_submodels`, the BFS in `buildSubModels` missed a reference path (e.g. the widget references something through a non-`children` field whose name we don't recognize).
 5. If `model.X is undefined`, our `__MystSubModel` is missing a method or property — add it.
@@ -277,10 +282,14 @@ Notes from when we did this:
 
 ## Known limitations
 
-- The shim is per-widget. Cross-widget interop via `window.__widgetRegistry`
-  works for simple anywidgets but each widget's render/initialize timing is
-  independent — registry-based linking depends on widgets registering before
-  others look them up. We haven't tested this with lonboard yet.
+- Cross-widget interop now goes through the per-page host (`host.getModel`,
+  `host.waitForModel`, `host.getWidget`, and scoped `host.on/off/emit`). The
+  scoped registry still lives behind the host runtime, but widgets should not
+  read or write global registries directly.
+- The current event boundary is intentionally small: the host emits lifecycle
+  events such as `model:registered`, while widget-to-widget data flow still uses
+  model change events (`model.on("change:x", ...)`). This is enough for the
+  examples, but not a full AFM/event design.
 - No widgets with complex serializers (custom `to_json` on the Python side that
   we'd need to mirror in JS) have been tested.
 - The CSS injection is unconditional — every anywidget that ships a `_css`

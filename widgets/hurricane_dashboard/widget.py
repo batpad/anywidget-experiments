@@ -2,9 +2,9 @@
 
 The notebook builds one lonboard layer per flood-depth bucket (dry, shallow,
 deep, drowned) plus a flood polygon, hospitals, and an optional basemap.
-The dashboard reaches into ``window.__myst_widgets`` by UUID and toggles
-layer visibility based on the slider state. All stats are precomputed in
-Python and shipped as a small ``stats_tables`` list.
+The dashboard resolves layer models through ``host.waitForModel`` by UUID and
+toggles layer visibility based on the slider state. All stats are precomputed
+in Python and shipped as a small ``stats_tables`` list.
 """
 import pathlib
 

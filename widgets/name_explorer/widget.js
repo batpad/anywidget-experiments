@@ -9,9 +9,6 @@
 //   * Easter egg: typing exactly "claude" (any case) into the typeahead
 //     triggers the rocket.
 
-window.__widgetRegistry = window.__widgetRegistry || new Map();
-window.__widgetEvents = window.__widgetEvents || new EventTarget();
-
 const SVG_NS = "http://www.w3.org/2000/svg";
 const VB_W = 1000;
 const VB_H = 280;
@@ -123,8 +120,6 @@ function fireConfetti(canvas, originX, originY) {
 // ---- main render ------------------------------------------------------------
 function render({ model, el: root }) {
     const widgetId = "name_explorer_" + Math.random().toString(36).slice(2, 8);
-    window.__widgetRegistry.set(widgetId, model);
-    model.on("destroy", () => window.__widgetRegistry.delete(widgetId));
 
     const yearStart = model.get("year_start") || 1880;
     const yearEnd = model.get("year_end") || 2023;

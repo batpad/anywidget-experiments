@@ -1,20 +1,13 @@
 // Linked counter widget that demonstrates inter-widget communication
 
-// Ensure globals exist
-window.__widgetRegistry = window.__widgetRegistry || new Map();
-window.__widgetEvents = window.__widgetEvents || new EventTarget();
+function resolveLinkedModel(host, id) {
+    if (!host || typeof host.waitForModel !== "function") {
+        return Promise.reject(new Error("host.waitForModel is unavailable"));
+    }
+    return host.waitForModel(id, { timeout: 5000 });
+}
 
-function render({ model, el }) {
-    // Register this widget's render model in the global registry
-    const widgetId = model.get('widget_id');
-    window.__widgetRegistry.set(widgetId, model);
-    model.on('destroy', () => {
-        window.__widgetRegistry.delete(widgetId);
-    });
-    window.__widgetEvents.dispatchEvent(new CustomEvent('widget-registered', {
-        detail: { widgetId }
-    }));
-
+function render({ model, el, host }) {
     const container = document.createElement('div');
     container.className = 'linked-counter-widget';
     
@@ -104,40 +97,40 @@ function render({ model, el }) {
         try { model.save_changes(); } catch(_) {}
         updateLinkedValue();
     });
+
+    let linkedModelRef = null;
     
     // Function to update linked value based on mode
     function updateLinkedValue() {
         const linkTo = model.get('link_to');
         if (!linkTo) return;
 
-        const linkedModel = window.__widgetRegistry?.get(linkTo);
-        if (!linkedModel) {
+        resolveLinkedModel(host, linkTo).then((linkedModel) => {
+            const mode = model.get('link_mode');
+            const myValue = model.get('value');
+            // For linked counters, read linked_value (the output); for regular counters, read value
+            const hasLinkedValue = linkedModel.get('linked_value') !== undefined;
+            const linkedValue = hasLinkedValue ? linkedModel.get('linked_value') : linkedModel.get('value');
+            let newLinkedValue = 0;
+            switch(mode) {
+                case 'mirror':
+                    newLinkedValue = linkedValue;
+                    break;
+                case 'sum':
+                    newLinkedValue = myValue + linkedValue;
+                    break;
+                case 'diff':
+                    newLinkedValue = myValue - linkedValue;
+                    break;
+            }
+            
+            model.set('linked_value', newLinkedValue);
+            model.set('status', `Linked to ${linkTo} (${mode})`);
+            try { model.save_changes(); } catch(e) {}
+        }).catch(() => {
             model.set('status', `Cannot find widget: ${linkTo}`);
             try { model.save_changes(); } catch(e) {}
-            return;
-        }
-
-        const mode = model.get('link_mode');
-        const myValue = model.get('value');
-        // For linked counters, read linked_value (the output); for regular counters, read value
-        const hasLinkedValue = linkedModel.get('linked_value') !== undefined;
-        const linkedValue = hasLinkedValue ? linkedModel.get('linked_value') : linkedModel.get('value');
-        let newLinkedValue = 0;
-        switch(mode) {
-            case 'mirror':
-                newLinkedValue = linkedValue;
-                break;
-            case 'sum':
-                newLinkedValue = myValue + linkedValue;
-                break;
-            case 'diff':
-                newLinkedValue = myValue - linkedValue;
-                break;
-        }
-        
-        model.set('linked_value', newLinkedValue);
-        model.set('status', `Linked to ${linkTo} (${mode})`);
-        try { model.save_changes(); } catch(e) {}
+        });
     }
     
     // Listen for changes to linked widget
@@ -145,21 +138,20 @@ function render({ model, el }) {
         const linkTo = model.get('link_to');
         if (!linkTo) return;
 
-        const linkedModel = window.__widgetRegistry?.get(linkTo);
-        if (linkedModel) {
+        resolveLinkedModel(host, linkTo).then((linkedModel) => {
+            if (linkedModelRef === linkedModel) {
+                updateLinkedValue();
+                return;
+            }
+            if (linkedModelRef && typeof linkedModelRef.off === 'function') {
+                linkedModelRef.off('change:value', updateLinkedValue);
+                linkedModelRef.off('change:linked_value', updateLinkedValue);
+            }
+            linkedModelRef = linkedModel;
             linkedModel.on('change:value', updateLinkedValue);
             linkedModel.on('change:linked_value', updateLinkedValue);
             updateLinkedValue();
-        } else {
-            // Target not registered yet — wait for it
-            const handler = (event) => {
-                if (event.detail.widgetId === linkTo) {
-                    window.__widgetEvents.removeEventListener('widget-registered', handler);
-                    setupLinkedListener(); // retry now that it's registered
-                }
-            };
-            window.__widgetEvents.addEventListener('widget-registered', handler);
-        }
+        }).catch(updateLinkedValue);
     }
     
     // Update displays when values change

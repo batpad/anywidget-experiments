@@ -1,24 +1,15 @@
-// WidgetBinder: subscribe to a source widget's trait change and write to a
-// target widget's trait. Both widgets are looked up via window.__myst_widgets,
-// which the static-export shim populates with all root + sub-models on the page.
+// WidgetBinder: subscribe to a source widget trait change and write to a
+// target widget's trait through the AFM-style host.waitForModel API.
 //
-// In a JupyterLab kernel context this widget does nothing useful — Python
+// In a JupyterLab kernel context this widget does nothing useful. Python
 // observers are the right tool there. This is for static export, where there's
 // no kernel and we need a JS-only binding.
 
-function pollFor(predicate, timeout) {
-    const start = Date.now();
-    return new Promise((resolve, reject) => {
-        const tick = () => {
-            const v = predicate();
-            if (v !== undefined && v !== null) return resolve(v);
-            if (Date.now() - start > timeout) {
-                return reject(new Error("[binder] timeout"));
-            }
-            setTimeout(tick, 50);
-        };
-        tick();
-    });
+function resolveModel(host, id, timeout = 5000) {
+    if (!host || typeof host.waitForModel !== "function") {
+        return Promise.reject(new Error("[binder] host.waitForModel is unavailable"));
+    }
+    return host.waitForModel(id, { timeout });
 }
 
 // Set a value at a dotted path on a target model. For leaf paths we simply
@@ -44,7 +35,7 @@ function setByPath(model, path, value) {
     model.set(topKey, next);
 }
 
-function render({ model, el }) {
+function render({ model, el, host }) {
     const sourceId = model.get("source_widget_id");
     const sourceField = model.get("source_field") || "value";
     const targetId = model.get("target_widget_id");
@@ -66,15 +57,9 @@ function render({ model, el }) {
     el.appendChild(status);
     status.textContent = `🔗 binder: waiting…  (${label})`;
 
-    const reg = window.__myst_widgets;
-    if (!reg) {
-        status.textContent = "❌ window.__myst_widgets not initialized; binder cannot run";
-        return;
-    }
-
     Promise.all([
-        pollFor(() => reg.get(sourceId), 5000),
-        pollFor(() => reg.get(targetId), 5000),
+        resolveModel(host, sourceId, 5000),
+        resolveModel(host, targetId, 5000),
     ]).then(([source, target]) => {
         const apply = () => {
             const raw = source.get(sourceField);
