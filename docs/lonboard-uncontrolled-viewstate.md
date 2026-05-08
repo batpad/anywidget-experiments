@@ -2,14 +2,17 @@
 
 ## What we hit
 
-In the interop demo (`notebooks/07_lonboard_interop.ipynb`), the first design
+In the interop demo (`notebooks/04_lonboard_interop.ipynb`), the first design
 was a counter widget driving the map's zoom via
 `target_field="view_state.zoom"`. The model layer worked perfectly:
 
 ```js
+// from inside a widget render({model, el, host}) call,
 // after clicking "Reset" on the counter:
-window.__myst_widgets.get('zoom_ctrl').get('value')  // 0
-window.__myst_widgets.get('lonboard._map.Map').get('view_state')?.zoom  // 0
+const counter = await host.waitForModel('zoom_ctrl');
+const map = await host.waitForModel('lonboard._map.Map');
+counter.get('value');                  // 0
+map.get('view_state')?.zoom;           // 0
 ```
 
 But the rendered map didn't change. Inspecting the live deck instance:
@@ -126,11 +129,11 @@ outside. Today, the only way is to send a custom comm message via Python.
 ## What we shipped
 
 The interop demo binds to `get_radius` instead of `view_state`. The README
-in `notebooks/07_lonboard_interop.ipynb` calls out the limitation.
+in `notebooks/04_lonboard_interop.ipynb` calls out the limitation.
 
 ## Cross-references
 
-- `notebooks/07_lonboard_interop.ipynb` — uses `get_radius`, comments on the
+- `notebooks/04_lonboard_interop.ipynb` — uses `get_radius`, comments on the
   view_state choice.
 - `widgets/widget_binder/widget.js` — supports dotted `target_field`, would
   handle `view_state.zoom` correctly if deck were controlled.
