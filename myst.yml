@@ -25,6 +25,7 @@ project:
     - file: notebooks/05_names.ipynb
     - file: notebooks/06_helene.ipynb
     - file: notebooks/07_terra_ui.ipynb
+    - file: notebooks/08_chart_widget_demo.ipynb
 
 site:
   template: book-theme

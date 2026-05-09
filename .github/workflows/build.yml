@@ -1,0 +1,105 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18, 20]
+        python-version: ['3.10', '3.11']
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+      
+      - name: Install root Node dependencies
+        run: npm ci
+      
+      - name: Install widget dependencies
+        run: npm run install-widgets
+      
+      - name: Build widgets
+        run: npm run build-widgets
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Run widget tests (if any)
+        run: |
+          if [ -d tests ]; then
+            python -m pytest tests/ -v
+          else
+            echo "No tests directory found, skipping tests"
+          fi
+      
+      - name: Build documentation
+        run: npm run build
+      
+      - name: Upload built widgets as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: built-widgets-node${{ matrix.node-version }}-py${{ matrix.python-version }}
+          path: |
+            widgets/*/dist/
+            !widgets/*/node_modules/
+      
+      - name: Check widget build outputs exist
+        run: |
+          echo "Checking widget build outputs..."
+          find widgets -name "dist" -type d -exec ls -la {} \;
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies and build
+        run: |
+          npm ci
+          npm run install-widgets
+          npm run build-widgets
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          npm run build
+      
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_build/html
+          cname: anywidget-experiments.example.com  # Update this if you have a custom domain
