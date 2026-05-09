@@ -1,0 +1,14 @@
+{
+  "name": "@anywidget-experiments/chart-widget",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Interactive Chart.js widget for Jupyter notebooks",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=esm --outfile=dist/widget.js --platform=browser",
+    "watch": "npm run build -- --watch",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "chart.js": "^4.4.0"
+  }
+}
