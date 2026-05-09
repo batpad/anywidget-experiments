@@ -32,3 +32,6 @@ data/helene/osm_buildings.json
 data/helene/osm_hospitals.json
 data/helene/modis_before.png
 data/helene/modis_after.png
+
+# NYC buildings: ~15 MB Overture parquet, fetched live by data/nyc/fetch.py
+data/nyc/buildings.parquet
