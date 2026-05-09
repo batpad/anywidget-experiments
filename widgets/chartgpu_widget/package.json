@@ -1,0 +1,14 @@
+{
+  "name": "@anywidget-experiments/chartgpu-widget",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChartGPU anywidget for high-performance GPU-accelerated charts",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --format=esm --outfile=dist/widget.js --platform=browser --loader:.wgsl=text",
+    "watch": "npm run build -- --watch",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "chartgpu": "^0.2.5"
+  }
+}
