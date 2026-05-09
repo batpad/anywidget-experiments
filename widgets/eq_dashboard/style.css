@@ -1,0 +1,149 @@
+.eq-dashboard {
+    --eqd-fg: #1f2937;
+    --eqd-fg-dim: #6b7280;
+    --eqd-bg: #ffffff;
+    --eqd-bg-soft: #f3f4f6;
+    --eqd-border: #e5e7eb;
+    --eqd-accent: #c2410c;
+
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 880px;
+    margin: 0.4em 0;
+    padding: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--eqd-fg);
+    display: flex;
+    flex-direction: row;
+    gap: 12px;
+    align-items: stretch;
+}
+.eq-dashboard *,
+.eq-dashboard *::before,
+.eq-dashboard *::after {
+    box-sizing: border-box;
+}
+
+.eq-dashboard__legend,
+.eq-dashboard__stats {
+    flex: 1 1 0;
+    min-width: 0;
+    background: var(--eqd-bg);
+    border: 1px solid var(--eqd-border);
+    border-radius: 8px;
+    padding: 0.7em 0.85em 0.85em;
+}
+.eq-dashboard__legend { flex-grow: 1.4; }
+
+.eq-dashboard h3 {
+    margin: 0 0 0.55em;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--eqd-fg-dim);
+}
+
+/* Legend ----------------------------------------------------------------- */
+
+.eq-dashboard__legend ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.18em;
+}
+.eq-dashboard__band {
+    display: grid;
+    grid-template-columns: 18px 16px 1fr auto;
+    align-items: center;
+    gap: 0.55em;
+    padding: 0.18em 0.1em;
+    cursor: pointer;
+    font-size: 0.86rem;
+    line-height: 1.2;
+    border-radius: 4px;
+}
+.eq-dashboard__band:hover { background: var(--eqd-bg-soft); }
+.eq-dashboard__band--off { opacity: 0.45; }
+.eq-dashboard__band--off .eq-dashboard__count { color: var(--eqd-fg-dim); }
+
+.eq-dashboard__band input[type="checkbox"] {
+    margin: 0;
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+    accent-color: var(--eqd-accent);
+}
+.eq-dashboard__swatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+}
+.eq-dashboard__label {
+    color: var(--eqd-fg);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.eq-dashboard__count {
+    font-variant-numeric: tabular-nums;
+    color: var(--eqd-fg-dim);
+    font-size: 0.78rem;
+}
+
+/* Stats ------------------------------------------------------------------ */
+
+.eq-dashboard__count-big {
+    font-size: 1.9rem;
+    font-weight: 700;
+    line-height: 1.05;
+    color: var(--eqd-accent);
+    font-variant-numeric: tabular-nums;
+}
+.eq-dashboard__count-sub {
+    font-size: 0.78rem;
+    color: var(--eqd-fg-dim);
+    margin-bottom: 0.7em;
+}
+
+.eq-dashboard__stats dl {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 0.18em 0.7em;
+    margin: 0;
+    font-size: 0.83rem;
+}
+.eq-dashboard__stats dt {
+    color: var(--eqd-fg-dim);
+}
+.eq-dashboard__stats dd {
+    margin: 0;
+    color: var(--eqd-fg);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Narrow width ----------------------------------------------------------- */
+
+@media (max-width: 640px) {
+    .eq-dashboard { flex-direction: column; }
+}
+
+/* Dark theme nudges -------------------------------------------------------
+ * JupyterLab's dark theme sets .jp-Notebook[data-jp-theme-light="false"]; we
+ * follow the user-agent prefers-color-scheme as a soft fallback so the panel
+ * doesn't read as a glaring white block on dark notebooks.
+ */
+@media (prefers-color-scheme: dark) {
+    .eq-dashboard {
+        --eqd-fg: #e5e7eb;
+        --eqd-fg-dim: #9ca3af;
+        --eqd-bg: #1f2937;
+        --eqd-bg-soft: #111827;
+        --eqd-border: #374151;
+        --eqd-accent: #fb923c;
+    }
+}

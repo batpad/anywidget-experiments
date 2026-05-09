@@ -24,6 +24,7 @@ project:
     - file: notebooks/04_lonboard_interop.ipynb
     - file: notebooks/05_names.ipynb
     - file: notebooks/06_helene.ipynb
+    - file: notebooks/07_terra_ui.ipynb
 
 site:
   template: book-theme

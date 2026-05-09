@@ -442,17 +442,23 @@ function __mystSetupModel(model) {
       grouped.get(topKey).push(buf);
     }
     for (const [topKey, bufs] of grouped.entries()) {
-      const topVal = model.get(topKey);
-      if (topVal == null) continue;
       const localPaths = bufs.map(function (b) { return b.path.slice(1); });
       const arrayBuffers = bufs.map(function (b) { return __mystBase64ToArrayBuffer(b.data); });
       // Special-case: when the entire top-level value is the buffer (path length 1),
-      // we have to set() it back since there's nothing to mutate in place.
+      // we have to set() it back since there's nothing to mutate in place. This
+      // path applies whether or not the trait had an initial value — e.g. a
+      // traitlets.Bytes() trait gets stripped to null in state during transport,
+      // so the topVal lookup below would be null and we still need to install
+      // the DataView via set().
       if (bufs.length === 1 && bufs[0].path.length === 1) {
         model.set(topKey, new DataView(arrayBuffers[0]));
-      } else {
-        __mystPutBuffers(topVal, localPaths, arrayBuffers);
+        continue;
       }
+      // Path length > 1: we need to mutate a nested object/array in place.
+      // Skip if the container itself is missing.
+      const topVal = model.get(topKey);
+      if (topVal == null) continue;
+      __mystPutBuffers(topVal, localPaths, arrayBuffers);
     }
   }
 
