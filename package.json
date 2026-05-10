@@ -3,17 +3,20 @@
   "version": "0.1.0",
   "description": "Composable anywidget-based widgets for geospatial visualization",
   "scripts": {
-    "install-widgets": "find widgets -name package.json -execdir npm ci \\;",
-    "build-widgets": "find widgets -name package.json -execdir npm run build \\;",
+    "install-widgets": "find widgets -mindepth 2 -maxdepth 2 -name package.json -execdir npm ci \\;",
+    "build-widgets": "find widgets -mindepth 2 -maxdepth 2 -name package.json -execdir npm run build \\;",
     "clean-widgets": "find widgets -name node_modules -type d -exec rm -rf {} + 2>/dev/null || true && find widgets -name dist -type d -exec rm -rf {} + 2>/dev/null || true",
     "prebuild": "npm run build-widgets && jupyter nbconvert --to notebook --execute --inplace notebooks/03_lonboard_static.ipynb notebooks/04_lonboard_interop.ipynb notebooks/07_terra_ui.ipynb notebooks/08_chart_widget_demo.ipynb notebooks/09_chartgpu_performance.ipynb notebooks/10_nyc_buildings.ipynb notebooks/11_jslink_demo.ipynb",
     "build": "myst build --html",
     "serve": "python -m http.server -d _build/html",
     "dev": "npm run build-widgets && jupyter lab",
-    "dev:widgets": "jupyter lab"
+    "dev:widgets": "jupyter lab",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "esbuild": "^0.28.0",
-    "mystmd": "^1.8.3"
+    "mystmd": "^1.8.3",
+    "vitest": "^2.1.0"
   }
 }

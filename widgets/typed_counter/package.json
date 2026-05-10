@@ -1,0 +1,16 @@
+{
+  "name": "@anywidget-experiments/typed-counter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript anywidget example. The 'golden template' for new widgets in this repo.",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --outfile=dist/widget.js --platform=browser --target=es2020",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist node_modules"
+  },
+  "devDependencies": {
+    "@anywidget/types": "^0.2.0",
+    "typescript": "^5.4.0"
+  }
+}
