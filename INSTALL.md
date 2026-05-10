@@ -11,7 +11,8 @@
 ### 1. Clone the Repository
 
 ```bash
-cd /Users/sanjay/seed/anywidget-experiments
+git clone https://github.com/batpad/anywidget-experiments.git
+cd anywidget-experiments
 ```
 
 ### 2. Create a Virtual Environment (Recommended)
@@ -27,20 +28,17 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Install MyST with Anywidget Support
-
-**Important:** You need the latest version of MyST (>=1.3.0) for anywidget support.
+### 4. Install MyST
 
 ```bash
-npm install -g mystmd
-# Or if you prefer local installation:
+# Local install (recommended — uses the version pinned in package.json):
 npm install
+
+# Or global install:
+npm install -g mystmd
 ```
 
-Verify the installation:
-```bash
-myst --version  # Should be >=1.3.0
-```
+Any current `mystmd` works; the `anywidget` directive has been supported for a while.
 
 ### 5. Launch Jupyter Lab
 
@@ -48,14 +46,14 @@ myst --version  # Should be >=1.3.0
 jupyter lab
 ```
 
-Navigate to the `notebooks/` directory and open `01_getting_started.ipynb` to begin.
+Navigate to the `notebooks/` directory and open `01_anywidget_counter.ipynb` to begin.
 
 ## Testing the Installation
 
 ### Test Widgets in Jupyter
 
 1. Open Jupyter Lab: `jupyter lab`
-2. Navigate to `notebooks/01_getting_started.ipynb`
+2. Navigate to `notebooks/01_anywidget_counter.ipynb`
 3. Run all cells
 4. Verify that:
    - Counter widgets appear and are interactive
@@ -66,12 +64,15 @@ Navigate to the `notebooks/` directory and open `01_getting_started.ipynb` to be
 
 1. Build the static site:
 ```bash
-myst build --html
+npm run build
 ```
+
+   `npm run build` runs `prebuild` first (which re-executes the lonboard notebooks via `nbclient` to capture binary buffers — see `docs/upstream-mystmd-comm-capture.md`) and then `myst build --html`. If you only need the counter notebooks, `myst build --html` directly is enough.
 
 2. Serve the static site:
 ```bash
-python -m http.server 8000 -d _build/html
+npm run serve
+# or: python -m http.server 8000 -d _build/html
 ```
 
 3. Open http://localhost:8000 in your browser
@@ -94,13 +95,9 @@ jupyter labextension install @jupyter-widgets/jupyterlab-manager
 
 ### Issue: MyST build fails
 
-**Solution:** Check MyST version:
+**Solution:** Make sure you're on a current `mystmd`:
 ```bash
 myst --version
-```
-
-Must be >=1.3.0 for anywidget support. Update if needed:
-```bash
 npm update -g mystmd
 ```
 
@@ -163,8 +160,8 @@ myst build --html
 
 ## Next Steps
 
-1. **Explore Examples**: Start with `notebooks/01_getting_started.ipynb`
-2. **Read Documentation**: See `CLAUDE.md` for technical details
+1. **Explore Examples**: Start with `notebooks/01_anywidget_counter.ipynb`
+2. **Read Documentation**: See `AGENTS.md` for technical details
 3. **Create Custom Widgets**: Follow patterns in `widgets/counter_widget/`
 4. **Test Static Export**: Verify widgets work without Python kernel
 5. **Contribute**: Create new widgets and examples
@@ -173,5 +170,5 @@ myst build --html
 
 For issues or questions:
 - Check the troubleshooting section above
-- Review `CLAUDE.md` for technical details
+- Review `AGENTS.md` for technical details
 - Open an issue on GitHub with details about your environment and error messages
