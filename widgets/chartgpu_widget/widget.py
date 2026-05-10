@@ -17,6 +17,7 @@ class ChartGPUWidget(anywidget.AnyWidget):
     # Widget state synchronized between Python and JavaScript
     chart_type = traitlets.Unicode("line").tag(sync=True)
     series_data = traitlets.List([]).tag(sync=True)
+    series_visibility = traitlets.List([]).tag(sync=True)
     chart_options = traitlets.Dict({}).tag(sync=True)
     theme = traitlets.Unicode("light").tag(sync=True)
     

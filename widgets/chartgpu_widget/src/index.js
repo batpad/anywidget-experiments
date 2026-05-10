@@ -28,15 +28,17 @@ async function render({ model, el }) {
     
     // Helper to convert series data to ChartGPU format
     function formatSeriesData(seriesData) {
-        return seriesData.map(series => {
+        const vis = model.get('series_visibility') || [];
+        return seriesData.map((series, i) => {
             const formattedSeries = {
                 type: series.type || 'line',
                 data: series.data,
             };
-            
+
             if (series.name) formattedSeries.name = series.name;
             if (series.color) formattedSeries.color = series.color;
-            
+            if (vis[i] === false) formattedSeries.visible = false;
+
             return formattedSeries;
         });
     }
@@ -142,6 +144,10 @@ async function render({ model, el }) {
     
     // Watch for model changes
     model.on('change:series_data', () => {
+        createOrUpdateChart();
+    });
+
+    model.on('change:series_visibility', () => {
         createOrUpdateChart();
     });
     

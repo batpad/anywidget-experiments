@@ -21,6 +21,11 @@ class NYCDashboard(anywidget.AnyWidget):
     # {"b_1": "uuid", "b_2_4": "uuid", ...} — one entry per bucket
     layer_uuids = traitlets.Dict({}).tag(sync=True)
 
+    # Optional ChartGPU widget model_id — when set, dashboard syncs
+    # `series_visibility` on the chart so series hide/show alongside layers.
+    # Series order in the chart must match bucket_definitions order.
+    chart_uuid = traitlets.Unicode("").tag(sync=True)
+
     # Display order + UI metadata. Each entry:
     #   {"key": "b_1", "label": "1 floor", "color": [r, g, b, a], "count": 1234}
     bucket_definitions = traitlets.List([]).tag(sync=True)
