@@ -132,6 +132,32 @@ function render({ model, el, host }) {
         });
     }
 
+    // Cross-widget link to the ChartGPU widget. Same resolver as for layers
+    // (host.waitForModel in static export, widget_manager.get_model in JLab).
+    let chartCache = null;
+    function getChart() {
+        if (chartCache !== null) return chartCache;
+        const uuid = model.get("chart_uuid");
+        if (!uuid) return Promise.resolve(null);
+        chartCache = resolveLayer(host, model, uuid);
+        return chartCache;
+    }
+
+    function syncChartVisibility() {
+        getChart().then((chartModel) => {
+            if (!chartModel) return;
+            const vis = buckets.map(b => bucketStates[b.key] !== false);
+            try {
+                chartModel.set("series_visibility", vis);
+                if (typeof chartModel.save_changes === "function") {
+                    try { chartModel.save_changes(); } catch (e) {}
+                }
+            } catch (e) {
+                console.warn("[nyc-dash] chart visibility sync failed:", e);
+            }
+        });
+    }
+
     // Build the bucket UI rows
     for (const b of buckets) {
         const row = document.createElement("label");
@@ -147,6 +173,7 @@ function render({ model, el, host }) {
         cb.addEventListener("change", () => {
             bucketStates[b.key] = cb.checked;
             setVisible(b.key, cb.checked);
+            syncChartVisibility();
             updateStats();
             try {
                 model.set("bucket_states", { ...bucketStates });
@@ -188,6 +215,7 @@ function render({ model, el, host }) {
         status.textContent = resolvedCount > 0
             ? `linked to ${resolvedCount} of ${buckets.length} layers`
             : "⚠️ no layers found";
+        syncChartVisibility();
         updateStats();
     });
 }
