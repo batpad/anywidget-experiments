@@ -29,6 +29,7 @@ project:
     - file: notebooks/09_chartgpu_performance.ipynb
     - file: notebooks/10_nyc_buildings.ipynb
     - file: notebooks/11_jslink_demo.ipynb
+    - file: notebooks/12_typescript_widget.ipynb
 
 site:
   template: book-theme
