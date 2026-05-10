@@ -46,6 +46,11 @@ jobs:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
+      # NYC buildings parquet is gitignored (~15 MB Overture extract); fetch it
+      # before prebuild so notebook 10 can read it during execution.
+      - name: Fetch NYC buildings parquet
+        run: python data/nyc/fetch.py
+
       # `prebuild` runs `jupyter nbconvert --execute --inplace` on the lonboard
       # notebooks. This captures binary Parquet buffers into metadata.widgets via
       # nbclient (see docs/upstream-mystmd-comm-capture.md for why).
