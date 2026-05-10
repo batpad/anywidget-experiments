@@ -99,6 +99,18 @@ The host's events are deliberately small: lifecycle (`model:registered`, `widget
 - `widgets/widget_binder/widget.js` — resolve a source and a target by id, apply a linear transform, write to a dotted target field (`view_state.zoom`).
 - `widgets/hurricane_dashboard/widget.js` — resolve lonboard layer sub-models by UUID and toggle their `visible` trait.
 
+#### `jslink` / `jsdlink` lifting
+
+For simple direct trait mirroring you don't need a connector widget — call `widgets.jslink((a, 'value'), (b, 'value'))` (bidirectional) or `widgets.jsdlink((src, 'value'), (tgt, 'value'))` (one-way) like in any ipywidgets notebook. The static-export plugin scans the notebook's `widget-state` for `LinkModel` / `DirectionalLinkModel` entries and synthesizes a hidden runtime that resolves both ends through `host.waitForModel` and wires up Backbone change listeners. Behavior matches upstream `widget_link.ts` (same `_updating` re-entrancy guard, initial-sync push at bind time).
+
+**Use jslink when:** you want plain `a.value <-> b.value` (or `a.foo -> b.foo`) mirroring with no transform.
+
+**Reach for a connector widget when:** you need a transform (`WidgetBinder`'s linear `multiplier`/`offset`, or `LinkedCounterWidget`'s mirror/sum/diff modes), nested-path writes (`view_state.zoom`), or any conditional logic.
+
+**Static-export caveat:** both endpoints must be anywidgets. Vanilla ipywidgets controls (e.g. `IntSlider`) work in JupyterLab but have no ESM bundle in the static build, so they don't register in the host and `waitForModel` will time out for them. In JupyterLab live mode `jslink`/`jsdlink` work natively for any combination of widgets — the synthesized runtime only ships in static export.
+
+Demo: `notebooks/11_jslink_demo.ipynb`.
+
 #### Debugging escape hatch (do not use in app code)
 
 The internal registry lives at `window.__myst_anywidget_hosts: Map<scope, Registry>`, keyed by `document.baseURI`. Useful from DevTools:
