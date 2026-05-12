@@ -41,8 +41,8 @@ function findOutputs(node, results = []) {
 }
 
 // Same walk as findOutputs but also yields the parent node holding the output.
-// We use the parent for AST insertion (appending the synthesized jslink runtime
-// next to a real notebook code cell, rather than at the document root).
+// We use the parent for output removal, for example suppressing the text repr
+// emitted by jslink/jsdlink-only cells.
 function findOutputsWithParent(tree) {
   const results = [];
   function visit(node, parent) {
@@ -343,7 +343,63 @@ function __mystCreateRegistry() {
   const _byKey = new Map();
   const _all = [];
   const _bindings = new Map();
+  const _links = new Map();
+  const _boundLinks = new Set();
   const _events = new __MystEmitter();
+
+  function linkKey(link) {
+    if (link && link.id) return String(link.id);
+    return JSON.stringify([
+      link && link.bidirectional ? 'bi' : 'dir',
+      link && link.sourceId,
+      link && link.sourceAttr,
+      link && link.targetId,
+      link && link.targetAttr,
+    ]);
+  }
+
+  function bindLinkIfReady(link) {
+    const key = linkKey(link);
+    if (_boundLinks.has(key)) return;
+    const source = _byKey.get(__mystNormalizeRef(link.sourceId));
+    const target = _byKey.get(__mystNormalizeRef(link.targetId));
+    if (!source || !target) return;
+    _boundLinks.add(key);
+    let _updating = false;
+    const fwd = function () {
+      if (_updating) return;
+      _updating = true;
+      try { target.set(link.targetAttr, source.get(link.sourceAttr)); }
+      finally { _updating = false; }
+    };
+    source.on('change:' + link.sourceAttr, fwd);
+    // Initial sync mirrors upstream LinkModel.updateBindings(): push current source to target.
+    fwd();
+    if (link.bidirectional) {
+      const rev = function () {
+        if (_updating) return;
+        _updating = true;
+        try { source.set(link.sourceAttr, target.get(link.targetAttr)); }
+        finally { _updating = false; }
+      };
+      target.on('change:' + link.targetAttr, rev);
+    }
+  }
+
+  function bindReadyLinks() {
+    for (const link of _links.values()) bindLinkIfReady(link);
+  }
+
+  function installLinks(links) {
+    if (!Array.isArray(links)) return;
+    for (const link of links) {
+      if (!link || !link.sourceId || !link.targetId || !link.sourceAttr || !link.targetAttr) continue;
+      const key = linkKey(link);
+      if (_links.has(key)) continue;
+      _links.set(key, link);
+    }
+    bindReadyLinks();
+  }
 
   function registerModel(model, keys) {
     const registeredKeys = [];
@@ -356,6 +412,7 @@ function __mystCreateRegistry() {
     for (const key of registeredKeys) {
       _events.emit(__MYST_MODEL_REGISTERED_EVENT, { key: key, model: model });
     }
+    bindReadyLinks();
   }
 
   function registerBinding(model, binding) {
@@ -409,6 +466,7 @@ function __mystCreateRegistry() {
     filter: function (pred) { return _all.filter(pred); },
     all: function () { return _all.slice(); },
     registerBinding: registerBinding,
+    installLinks: installLinks,
     getBinding: function (key) { return _bindings.get(__mystNormalizeRef(key)); },
     getModel: function (ref) {
       const key = __mystNormalizeRef(ref);
@@ -565,6 +623,7 @@ function __mystSetupModel(model) {
     widget_id: widgetIdField,
     _anywidget_id: anywidgetIdField,
   }, rootId));
+  reg.installLinks((typeof model.get === 'function' && model.get('_myst_links')) || []);
 }
 
 function __mystNormalizeModule(mod) {
@@ -645,7 +704,7 @@ export default {
 
 // Build the AST `node.model` payload: the root widget's user state, plus our private
 // _myst_* keys for the runtime shim to consume.
-function buildInitialModel(rootId, widgetState) {
+function buildInitialModel(rootId, widgetState, links = []) {
   const rootEntry = widgetState[rootId];
   if (!rootEntry) return {};
   const state = rootEntry.state || {};
@@ -656,6 +715,7 @@ function buildInitialModel(rootId, widgetState) {
   }
   model._myst_buffers = rootEntry.buffers ?? [];
   model._myst_submodels = buildSubModels(rootId, widgetState);
+  if (links.length > 0) model._myst_links = links;
   // Identifiers the runtime shim uses to register the model in the scoped host
   // registry so cross-widget interop (binders, controllers, etc.) can find each other.
   model._myst_root_id = rootId;
@@ -703,72 +763,10 @@ function emitStaticWidgetAssets(assetDir, esm, css, model) {
   };
 }
 
-// User ESM for the synthetic jslink runtime. One mount per page; the model carries
-// the full link manifest. Direct port of upstream `widget_link.ts` (jupyter-widgets/
-// ipywidgets:packages/controls/src/widget_link.ts) — same `_updating` guard, same
-// listener shape. We hide the host element since LinkModel/DirectionalLinkModel
-// have no view in upstream either. Source lives in jslink-runtime.mjs and is
-// emitted verbatim into _widget_assets/ at build time.
-const JSLINK_RUNTIME_SOURCE = fs.readFileSync(
-  path.join(__dirname, 'jslink-runtime.mjs'),
-  'utf8',
-);
-
-// Synthesize a hidden anywidget AST node that runs the jslink runtime once per page.
-// We append it to an existing block (the last block whose output we rewrote, or the
-// last block in the tree) so the AST shape stays familiar.
-function insertJslinkRuntime(tree, links, assetDir, lastRewrittenParent) {
-  if (!links || links.length === 0) return null;
-  const rootId = '__myst_jslink_runtime_' + shortHash(JSON.stringify(links));
-  const model = {
-    links,
-    _myst_buffers: [],
-    _myst_submodels: {},
-    _myst_root_id: rootId,
-  };
-  const assets = emitStaticWidgetAssets(assetDir, JSLINK_RUNTIME_SOURCE, null, model);
-  const node = {
-    type: 'anywidget',
-    esm: assets.module,
-    model,
-    id: rootId,
-    children: [],
-    key: nanoidLike(),
-  };
-  // Prefer a parent that already holds rewritten outputs (a notebook code-cell block).
-  // Fall back to scanning for any node with a children array we can append to.
-  const parent = lastRewrittenParent || findAppendableBlock(tree);
-  if (parent && Array.isArray(parent.children)) {
-    parent.children.push(node);
-  } else if (Array.isArray(tree?.children)) {
-    tree.children.push(node);
-  }
-  return { rootId, assets };
-}
-
-// Walk the tree and return the last node whose children array contains an
-// `output` or `anywidget` node (i.e. a notebook code-cell block).
-function findAppendableBlock(tree) {
-  let last = null;
-  function visit(node) {
-    if (!node || typeof node !== 'object') return;
-    if (Array.isArray(node)) { node.forEach(visit); return; }
-    if (Array.isArray(node.children)) {
-      const hasOutput = node.children.some(function (c) {
-        return c && (c.type === 'output' || c.type === 'anywidget');
-      });
-      if (hasOutput) last = node;
-      node.children.forEach(visit);
-    }
-  }
-  visit(tree);
-  return last;
-}
-
 // Splice text/plain outputs whose only content is the `Link(source=..., target=...)`
 // repr that ipywidgets prints when a `jslink`/`jsdlink` cell is the last expression.
-// The synthesized runtime renders the binding; the repr would otherwise leak through
-// as plain-text page noise (or, if blanked, as a "Cannot render output node" disclosure).
+// The host registry renders the binding; the repr would otherwise leak through as
+// plain-text page noise (or, if blanked, as a "Cannot render output node" disclosure).
 function suppressJslinkReprs(tree) {
   const reprPattern = /^(?:Link|DirectionalLink)\(source=\(.+,\s*'[^']+'\),\s*target=\(.+,\s*'[^']+'\)\)\s*$/;
   for (const { node, parent } of findOutputsWithParent(tree)) {
@@ -792,7 +790,7 @@ function suppressJslinkReprs(tree) {
   }
 }
 
-function writeManifest(assetDir, sourcePath, manifestEntries) {
+function writeManifest(assetDir, sourcePath, manifestEntries, links = []) {
   const manifestPath = path.join(assetDir, MANIFEST_NAME);
   let manifest = { runtime: `${ASSET_DIR_NAME}/${RUNTIME_MODULE_NAME}`, pages: {} };
   if (fs.existsSync(manifestPath)) {
@@ -812,6 +810,7 @@ function writeManifest(assetDir, sourcePath, manifestEntries) {
   manifest.pages[path.basename(sourcePath)] = {
     source: path.basename(sourcePath),
     widgets: manifestEntries,
+    links,
   };
   manifest.widgets = Object.values(manifest.pages).flatMap((page) => page.widgets ?? []);
   writeFileIfChanged(
@@ -852,11 +851,11 @@ const transformPlugin = () => async (tree, file) => {
   if (!widgetState) return;
 
   const assetDir = ensureStaticAssetDir(sourcePath);
+  const links = collectJsLinks(widgetState);
 
   let rewriteCount = 0;
   const manifestEntries = [];
-  let lastRewrittenParent = null;
-  for (const { node, parent } of findOutputsWithParent(tree)) {
+  for (const { node } of findOutputsWithParent(tree)) {
     const data = node?.jupyter_data?.data;
     const viewMime = data?.[WIDGET_VIEW_MIME];
     if (!viewMime) continue;
@@ -876,7 +875,7 @@ const transformPlugin = () => async (tree, file) => {
     const css = state._css;
     if (!esm) continue;
 
-    const model = buildInitialModel(rootId, widgetState);
+    const model = buildInitialModel(rootId, widgetState, links);
     if (css) {
       model._myst_css_text = css;
       model._myst_css_key = shortHash(css);
@@ -884,7 +883,6 @@ const transformPlugin = () => async (tree, file) => {
 
     const assets = emitStaticWidgetAssets(assetDir, esm, css, model);
     rewriteOutputNodeToAnywidget(node, rootId, model, assets);
-    lastRewrittenParent = parent || lastRewrittenParent;
 
     manifestEntries.push({
       id: rootId,
@@ -896,27 +894,15 @@ const transformPlugin = () => async (tree, file) => {
   }
 
   // jslink lifting: parse `LinkModel`/`DirectionalLinkModel` entries from the
-  // notebook's widget-state and synthesize a single hidden runtime node that
-  // resolves source/target through `host.waitForModel` and wires up Backbone
-  // change listeners. See ticket #5 for the design.
-  const links = collectJsLinks(widgetState);
-  let linkRuntime = null;
+  // notebook's widget-state. The page-level manifest is attached to each real
+  // rewritten widget model under `_myst_links`; the shared host registry installs
+  // the bindings once and resolves source/target models as they register.
   if (links.length > 0) {
     suppressJslinkReprs(tree);
-    linkRuntime = insertJslinkRuntime(tree, links, assetDir, lastRewrittenParent);
-    if (linkRuntime) {
-      manifestEntries.push({
-        id: linkRuntime.rootId,
-        ...linkRuntime.assets,
-        buffers: 0,
-        submodels: 0,
-        links: links.length,
-      });
-    }
   }
 
-  if (rewriteCount > 0 || linkRuntime) {
-    writeManifest(assetDir, sourcePath, manifestEntries);
+  if (rewriteCount > 0) {
+    writeManifest(assetDir, sourcePath, manifestEntries, links);
     const linkSummary = links.length > 0 ? `, ${links.length} jslink(s)` : '';
     console.log(`[anywidget-static-export] exported ${rewriteCount} widget(s)${linkSummary} in ${path.basename(sourcePath)}`);
   }
