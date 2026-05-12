@@ -148,6 +148,43 @@ describe("anywidget-static-export plugin", () => {
     });
   });
 
+  it("lifts LinkModel state into the host registry link manifest", async () => {
+    await inTmpDir("jslink.ipynb", async ({ dir, notebookPath }) => {
+      const tree = buildAstForNotebook(notebookPath);
+      await transform(tree, { path: notebookPath });
+
+      const widgets = nodesOfType(tree, "anywidget");
+      expect(widgets).toHaveLength(2);
+      expect(nodesOfType(tree, "output")).toHaveLength(0);
+
+      for (const node of widgets) {
+        expect(node.id).not.toMatch(/^__myst_jslink_runtime_/);
+        expect(node.model._myst_links).toEqual([
+          {
+            id: "link",
+            bidirectional: true,
+            sourceId: "source",
+            sourceAttr: "value",
+            targetId: "target",
+            targetAttr: "value",
+          },
+        ]);
+      }
+
+      const manifestPath = path.join(dir, ASSETS, "manifest.json");
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      const pageEntry = manifest.pages["jslink.ipynb"];
+      expect(pageEntry.widgets.map((w) => w.id).sort()).toEqual(["source", "target"]);
+      expect(pageEntry.links).toHaveLength(1);
+      expect(pageEntry.links[0]).toMatchObject({
+        id: "link",
+        bidirectional: true,
+        sourceId: "source",
+        targetId: "target",
+      });
+    });
+  });
+
   it("is idempotent across runs (writeFileIfChanged keeps mtimes stable)", async () => {
     await inTmpDir("simple-counter.ipynb", async ({ dir, notebookPath }) => {
       const tree1 = buildAstForNotebook(notebookPath);

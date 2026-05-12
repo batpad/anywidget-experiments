@@ -176,6 +176,46 @@ const FIXTURES = {
     },
   }),
 
+  // Two anywidgets linked by an ipywidgets LinkModel. The plugin should lift
+  // the LinkModel into each exported widget model's page-level _myst_links
+  // manifest and suppress the plain-text Link(...) repr output.
+  "jslink.ipynb": notebook({
+    cells: [
+      widgetViewCell("source", "source"),
+      widgetViewCell("target", "target"),
+      {
+        cell_type: "code",
+        execution_count: 2,
+        metadata: {},
+        source: "w.jslink((source, 'value'), (target, 'value'))",
+        outputs: [
+          {
+            output_type: "execute_result",
+            execution_count: 2,
+            data: {
+              "text/plain": "Link(source=(Counter(value=1), 'value'), target=(Counter(value=2), 'value'))",
+            },
+            metadata: {},
+          },
+        ],
+      },
+    ],
+    widgetState: {
+      source: anywidgetEntry({ value: 1, widget_id: "source" }),
+      target: anywidgetEntry({ value: 2, widget_id: "target" }),
+      link: {
+        model_module: "@jupyter-widgets/controls",
+        model_module_version: "2.0.0",
+        model_name: "LinkModel",
+        state: {
+          source: ["IPY_MODEL_source", "value"],
+          target: ["IPY_MODEL_target", "value"],
+        },
+        buffers: [],
+      },
+    },
+  }),
+
   // Counter with CSS — exercises the _css → _myst_css_text path and the
   // deliberate omission of node.css.
   "with-css.ipynb": notebook({

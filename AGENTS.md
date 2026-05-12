@@ -9,7 +9,7 @@ This project explores creating a set of composable, interactive widgets for geos
 ### Anywidget
 - **Purpose**: Simplifies Jupyter widget development by using standard ES modules instead of complex webpack builds
 - **Architecture**: Python class + ES module with lifecycle hooks (initialize, render)
-- **Advantages**: 
+- **Advantages**:
   - No build step required
   - Standard ES modules work everywhere
   - Simpler than ipywidgets
@@ -44,13 +44,13 @@ class MyWidget(anywidget.AnyWidget):
 export function render({ model, el }) {
     // Access state
     const value = model.get("value");
-    
+
     // Listen to changes
     model.on("change:value", () => {
         const newValue = model.get("value");
         // Update UI
     });
-    
+
     // Update state
     model.set("value", 42);
     model.save_changes();  // Sync to Python
@@ -101,7 +101,7 @@ The host's events are deliberately small: lifecycle (`model:registered`, `widget
 
 #### `jslink` / `jsdlink` lifting
 
-For simple direct trait mirroring you don't need a connector widget — call `widgets.jslink((a, 'value'), (b, 'value'))` (bidirectional) or `widgets.jsdlink((src, 'value'), (tgt, 'value'))` (one-way) like in any ipywidgets notebook. The static-export plugin scans the notebook's `widget-state` for `LinkModel` / `DirectionalLinkModel` entries and synthesizes a hidden runtime that resolves both ends through `host.waitForModel` and wires up Backbone change listeners. Behavior matches upstream `widget_link.ts` (same `_updating` re-entrancy guard, initial-sync push at bind time).
+For simple direct trait mirroring you don't need a connector widget — call `widgets.jslink((a, 'value'), (b, 'value'))` (bidirectional) or `widgets.jsdlink((src, 'value'), (tgt, 'value'))` (one-way) like in any ipywidgets notebook. The static-export plugin scans the notebook's `widget-state` for `LinkModel` / `DirectionalLinkModel` entries, attaches a page-level link manifest to the exported anywidget models, and the shared static host registry wires change listeners once both endpoints register. Behavior matches upstream `widget_link.ts` (same `_updating` re-entrancy guard, initial-sync push at bind time).
 
 **Use jslink when:** you want plain `a.value <-> b.value` (or `a.foo -> b.foo`) mirroring with no transform.
 
@@ -158,11 +158,11 @@ import traitlets
 class CustomWidget(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "widget.js"
     _css = pathlib.Path(__file__).parent / "style.css"  # Optional
-    
+
     # Synchronized state
     value = traitlets.Int(0).tag(sync=True)
     data = traitlets.List([]).tag(sync=True)
-    
+
     # Python-only state
     _private = traitlets.Any()
 ```
@@ -174,16 +174,16 @@ export default {
         // Create UI
         const container = document.createElement('div');
         el.appendChild(container);
-        
+
         // React to state changes
         model.on('change:value', () => updateUI());
-        
+
         // Handle user interactions
         container.addEventListener('click', () => {
             model.set('value', model.get('value') + 1);
             try { model.save_changes(); } catch (e) {}  // no-op in static export
         });
-        
+
         // Cross-widget interop (static export only — host is undefined in kernel context):
         if (host) {
             host.waitForModel('other_widget_id').then(other => {
@@ -210,7 +210,7 @@ class GeoWidget(anywidget.AnyWidget):
     """Base class for geospatial widgets"""
     bounds = traitlets.List([]).tag(sync=True)
     selected_features = traitlets.List([]).tag(sync=True)
-    
+
     def filter_by_bounds(self, data):
         """Common geospatial filtering logic"""
         pass
