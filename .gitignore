@@ -35,3 +35,5 @@ data/helene/modis_after.png
 
 # NYC buildings: ~15 MB Overture parquet, fetched live by data/nyc/fetch.py
 data/nyc/buildings.parquet
+
+.env
