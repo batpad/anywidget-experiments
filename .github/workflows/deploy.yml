@@ -18,6 +18,10 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # MONTANDON_API_TOKEN is consumed by the monty notebooks (13/14) during the
+    # prebuild execute step and by the myst build. Set at job level so both see it.
+    env:
+      MONTANDON_API_TOKEN: ${{ secrets.MONTANDON_API_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,14 +32,17 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install Python dependencies
-        run: pip install -r requirements.txt
-
+      # Node must be set up before installing Python deps: `manywidgets` is pulled
+      # from git and its hatch-jupyter-builder backend runs `npm install && npm run
+      # build` at pip-install time, so npm has to be on PATH first.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: npm
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
 
       - name: Install Node dependencies
         run: npm ci
