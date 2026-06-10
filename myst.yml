@@ -13,7 +13,7 @@ project:
     - static-export
     - jupyter
   plugins:
-    - plugins/anywidget-static-export.mjs
+    - https://github.com/developmentseed/myst-anywidget-static-export/releases/download/v0.3.0/plugin.mjs
   toc:
     - file: README.md
     - file: what-is-this.md
